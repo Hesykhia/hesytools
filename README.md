@@ -12,15 +12,18 @@ of the old Python hesytools (v4).
 - **Macros**: record (F9) and replay keys, clicks, mouse movement and timing.
   Steps can be edited in place, and you can add loops, typed text and "wait
   until the screen shows…". Each macro can have its own hotkey, repeat count
-  and speed. While recording, every step shows up live in the app and in a
-  small always-on-top overlay. Old v4 macro files can be imported.
+  and speed. While recording, every step shows up live in the app and a red,
+  click-through outline marks every screen. Recorded mouse movement can be
+  edited or made instant. Old v4 macro files can be imported.
 - **Screen Watch**: drag a box on screen, then trigger on text appearing or
   disappearing, a number reaching a value (`1,234`, `1.25e+25`, `12.5K`,
-  `3M`), "e25 +1 digit" style matching (e250 to e259), a pixel colour, an
-  image (button or icon), or any change. A live viewer shows exactly what's
+  `3M`), "e25 +1 digit" style matching (e250 to e259), a colour appearing
+  (with an eyedropper that picks it off the screen), an image (button or
+  icon), or any change. A live viewer shows exactly what's
   being read. Watches can run a macro, stop everything, or just notify you.
 - **Discord webhook** alerts, a **panic key** (F8) that stops everything,
-  admin mode for elevated apps, and a tray icon.
+  admin mode for elevated apps, a tray icon, and start with Windows. Every
+  setting and hotkey is on one Settings page.
 
 ## Why it's light on CPU
 
@@ -47,8 +50,9 @@ cargo test -p engine
 **Browser preview mode.** `pnpm dev` and then opening http://localhost:1420
 in a normal browser runs the UI against a fake backend
 (`src/lib/dev/mock.ts`). That lets you design screens without sending any
-real input. `?scene=editor:m2`, `playing:m1`, `recording` and `watch:1` jump
-straight to a state.
+real input. `?scene=editor:m2`, `playing:m1`, `recording`, `watch:1`,
+`settings` and `clicker:<n>` (opens a clicker panel) jump straight to a
+state.
 
 **Engine tools** (`crates/engine/examples`):
 
@@ -57,6 +61,7 @@ straight to a state.
 | `probe` | Shows input exactly as a game reading Raw Input sees it |
 | `selftest` | Measures timing accuracy and CPU (only presses F24) |
 | `ocrtest`, `waitfor`, `pickregion` | Screen Watch checks |
+| `monitors`, `outline` | Multi-monitor capture, and the recording outline |
 | `recplay` | Records and replays input |
 | `importv4` | Converts an old macro file and prints the steps |
 
@@ -66,9 +71,9 @@ straight to a state.
 crates/engine/   Everything that touches Windows, independent of the UI:
                  input (SendInput), timer, hooks, hotkeys, clicker, macros
                  (model, recorder, player), capture, ocr, watch, imagematch,
-                 picker, import, webhook, elevation
+                 picker, outline, import, startup, webhook, elevation
 src-tauri/       The app: commands, settings, macro storage, watch runner,
-                 tray, recording overlay window
+                 tray
 src/             SvelteKit UI (Svelte 5). Motion follows the transitions.dev
                  tokens (.agents/skills)
 ```
