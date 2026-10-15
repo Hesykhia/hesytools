@@ -1,0 +1,93 @@
+//! Persistent user settings, stored as JSON in the app config directory.
+
+use engine::clicker::ClickerConfig;
+use engine::hotkey::Hotkey;
+use engine::keys::Key;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum HotkeyMode {
+    /// Press once to start, again to stop.
+    #[default]
+    Toggle,
+    /// Runs only while the hotkey is held.
+    Hold,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WebhookSettings {
+    pub url: String,
+    /// Optional Discord user ID to @mention in notifications.
+    pub mention_user_id: String,
+    pub notify_clicker_finished: bool,
+}
+
+impl Default for WebhookSettings {
+    fn default() -> Self {
+        Self {
+            url: String::new(),
+            mention_user_id: String::new(),
+            notify_clicker_finished: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Settings {
+    pub clicker: ClickerConfig,
+    pub clicker_hotkey: Option<Hotkey>,
+    pub clicker_mode: HotkeyMode,
+    /// Stops everything, always.
+    pub panic_hotkey: Option<Hotkey>,
+    pub webhook: WebhookSettings,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            clicker: ClickerConfig::default(),
+            clicker_hotkey: Key::from_name("F6").map(Hotkey::key),
+            clicker_mode: HotkeyMode::Toggle,
+            panic_hotkey: Key::from_name("F8").map(Hotkey::key),
+            webhook: WebhookSettings::default(),
+        }
+    }
+}
+
+pub struct Store {
+    path: PathBuf,
+}
+
+impl Store {
+    pub fn new(dir: &Path) -> Self {
+        Self { path: dir.join("settings.json") }
+    }
+
+    /// Missing or unreadable files fall back to defaults; a corrupt file is
+    /// kept as `settings.json.bad` rather than silently overwritten.
+    pub fn load(&self) -> Settings {
+        let Ok(text) = std::fs::read_to_string(&self.path) else {
+            return Settings::default();
+        };
+        serde_json::from_str(&text).unwrap_or_else(|e| {
+            eprintln!("settings: {e}; starting from defaults");
+            let _ = std::fs::rename(&self.path, self.path.with_extension("json.bad"));
+            Settings::default()
+        })
+    }
+
+    /// Atomic write: a crash mid-save can't leave a half-written file.
+    pub fn save(&self, s: &Settings) -> Result<(), String> {
+        if let Some(dir) = self.path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        let tmp = self.path.with_extension("json.tmp");
+        let json = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
+        std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &self.path).map_err(|e| e.to_string())
+    }
+}

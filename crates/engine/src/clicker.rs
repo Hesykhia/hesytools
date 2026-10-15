@@ -87,6 +87,16 @@ pub struct ClickerStatus {
     pub blocked: u64,
 }
 
+/// Why a run ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ExitReason {
+    /// `stop()` was called.
+    Stopped,
+    /// The configured click count or duration was reached.
+    Finished,
+}
+
 #[derive(Default)]
 pub struct Clicker {
     run: Mutex<Option<Run>>,
@@ -98,7 +108,13 @@ impl Clicker {
         Self::default()
     }
 
-    pub fn start(&self, cfg: ClickerConfig) -> windows::core::Result<()> {
+    /// Start clicking on a background thread. `on_exit` runs on that thread
+    /// when the run ends; it must not call back into `start`/`stop`.
+    pub fn start(
+        &self,
+        cfg: ClickerConfig,
+        on_exit: impl FnOnce(ExitReason) + Send + 'static,
+    ) -> windows::core::Result<()> {
         self.stop();
         let waiter = Arc::new(Waiter::new()?);
         let shared = self.shared.clone();
@@ -112,6 +128,7 @@ impl Clicker {
                 raise_thread_priority();
                 click_loop(&cfg, &w, &shared);
                 shared.running.store(false, Ordering::SeqCst);
+                on_exit(if w.is_cancelled() { ExitReason::Stopped } else { ExitReason::Finished });
             })
             .expect("spawn clicker thread");
         *self.run.lock() = Some(Run { waiter, thread });
@@ -122,17 +139,6 @@ impl Clicker {
         if let Some(run) = self.run.lock().take() {
             run.waiter.cancel();
             let _ = run.thread.join();
-        }
-    }
-
-    /// Start if stopped, stop if running. Returns whether it's now running.
-    pub fn toggle(&self, cfg: ClickerConfig) -> windows::core::Result<bool> {
-        if self.is_running() {
-            self.stop();
-            Ok(false)
-        } else {
-            self.start(cfg)?;
-            Ok(true)
         }
     }
 

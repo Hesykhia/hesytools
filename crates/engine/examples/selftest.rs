@@ -76,7 +76,7 @@ fn main() {
                 hold_ms: 0.0,
                 stop_after: StopAfter::Seconds { secs },
                 ..Default::default()
-            })
+            }, |_| {})
             .unwrap();
         let mut downs = Vec::new();
         let end = Instant::now() + Duration::from_secs_f64(secs + 0.3);

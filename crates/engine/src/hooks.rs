@@ -12,7 +12,7 @@ use crate::keys::{Key, MouseButton};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use parking_lot::Mutex;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -75,6 +75,33 @@ pub fn subscribe(want_moves: bool) -> Receiver<InputEvent> {
     rx
 }
 
+static PICKING: AtomicBool = AtomicBool::new(false);
+static PICK_TX: Mutex<Option<Sender<Option<(i32, i32)>>>> = Mutex::new(None);
+static SWALLOW_LEFT_UP: AtomicBool = AtomicBool::new(false);
+
+/// Block until the user left-clicks anywhere and return that screen point.
+/// The click itself is swallowed so it doesn't hit whatever is underneath.
+/// Escape cancels (returns `None`).
+pub fn pick_point() -> Option<(i32, i32)> {
+    hub();
+    let (tx, rx) = crossbeam_channel::bounded(1);
+    *PICK_TX.lock() = Some(tx);
+    PICKING.store(true, Ordering::SeqCst);
+    rx.recv().ok().flatten()
+}
+
+pub fn cancel_pick() {
+    finish_pick(None);
+}
+
+fn finish_pick(result: Option<(i32, i32)>) -> bool {
+    PICKING.store(false, Ordering::SeqCst);
+    match PICK_TX.lock().take() {
+        Some(tx) => tx.send(result).is_ok(),
+        None => false,
+    }
+}
+
 fn publish(ev: InputEvent) {
     let Some(h) = HUB.get() else { return };
     let is_move = matches!(ev.kind, InputKind::Move);
@@ -112,6 +139,9 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
         let k = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
         let down = matches!(wparam.0 as u32, WM_KEYDOWN | WM_SYSKEYDOWN);
         let ours = input::is_ours(k.dwExtraInfo);
+        if down && !ours && k.vkCode == Key::ESCAPE.0 as u32 && PICKING.load(Ordering::SeqCst) && finish_pick(None) {
+            return LRESULT(1);
+        }
         publish(InputEvent {
             kind: InputKind::Key {
                 key: Key(k.vkCode as u16),
@@ -132,6 +162,16 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
 unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
         let m = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
+        let msg = wparam.0 as u32;
+        if !input::is_ours(m.dwExtraInfo) {
+            if msg == WM_LBUTTONDOWN && PICKING.load(Ordering::SeqCst) && finish_pick(Some((m.pt.x, m.pt.y))) {
+                SWALLOW_LEFT_UP.store(true, Ordering::SeqCst);
+                return LRESULT(1);
+            }
+            if msg == WM_LBUTTONUP && SWALLOW_LEFT_UP.swap(false, Ordering::SeqCst) {
+                return LRESULT(1);
+            }
+        }
         let hi = (m.mouseData >> 16) as u16;
         let xbtn = if hi == XBUTTON1 { MouseButton::X1 } else { MouseButton::X2 };
         let kind = match wparam.0 as u32 {

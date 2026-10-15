@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "hesytools-next",
+  "productName": "hesytools",
   "version": "0.1.0",
   "identifier": "com.hesy.hesytools",
   "build": {
@@ -12,23 +12,30 @@
   "app": {
     "windows": [
       {
-        "title": "hesytools-next",
-        "width": 800,
-        "height": 600
+        "label": "main",
+        "title": "hesytools",
+        "width": 1040,
+        "height": 720,
+        "minWidth": 860,
+        "minHeight": 580,
+        "center": true,
+        "theme": "Dark",
+        "backgroundColor": "#0e0f13"
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:"
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns",
       "icons/icon.ico"
     ]
   }
