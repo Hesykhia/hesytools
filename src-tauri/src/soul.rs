@@ -48,6 +48,9 @@ pub struct SoulConfig {
     pub buy_upgrades: bool,
     pub orb: bool,
     pub orb_cps: f64,
+    /// Keep this many minutes of income unspent (Lucky Souls pays up to
+    /// 15% of what you hold).
+    pub reserve_minutes: f64,
     pub ritual: RitualRule,
 }
 

@@ -23,6 +23,7 @@
     buyUpgrades: false,
     orb: false,
     orbCps: 8,
+    reserveMinutes: 0,
     ritual: { mode: "off", worth: 1.5, shards: 10 },
   };
   // svelte-ignore state_referenced_locally
@@ -106,7 +107,11 @@
     { key: "leech", name: "Claim the Soul Leech", what: "What your sources earned while you were away" },
     { key: "blessings", name: "Release banked blessings", what: "Use a saved blessing as soon as it's banked" },
     { key: "buyUpgrades", name: "Buy upgrades", what: "Anything in the Curiosity Shop you can afford" },
-    { key: "buyGens", name: "Buy generators", what: "Always the best value: most souls per second for the price" },
+    {
+      key: "buyGens",
+      name: "Buy generators",
+      what: "Whatever pays off soonest against everything you make, including saving up for the next 10/25/50… milestone that doubles a generator",
+    },
   ];
   const RITUAL: { value: RitualMode; label: string }[] = [
     { value: "off", label: "Off" },
@@ -196,6 +201,9 @@
           {#if gain}<em>×{gain.toFixed(2)} output</em>{/if}
         </div>
       </div>
+      {#if stats?.plan && cfg.buyGens}
+        <p class="plan">Plan: {stats.plan}</p>
+      {/if}
       {#if stats}
         <p class="tally">
           {stats.favors} favors · {stats.spheres ?? 0} spheres · {stats.crystals} Mid-Bosses · {stats.upgrades} upgrades · {stats.gens} generators · {stats.rituals}
@@ -229,6 +237,15 @@
             <small>While something like Trigger Frenzy is running, click the orb 20 times a second (even if the above is off)</small>
           </div>
           <Toggle checked={cfg.frenzy} onchange={(v) => (cfg.frenzy = v)} label="Click hard during click blessings" />
+        </div>
+        <div class="row">
+          <div class="text">
+            <b>Keep a reserve</b>
+            <small>
+              Don't spend the last <InlineNumber value={cfg.reserveMinutes} min={0} onchange={(v) => (cfg.reserveMinutes = Math.max(0, v))} />
+              minutes of income. Lucky Souls pays up to 15% of what you're holding, so a reserve makes it pay more. 0 = spend it all.
+            </small>
+          </div>
         </div>
       </div>
 
@@ -428,6 +445,12 @@
     font-size: 12px;
     color: var(--violet-2);
     font-weight: 600;
+  }
+  .plan {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--violet-2);
+    margin-top: -6px;
   }
   .tally {
     font-size: 12.5px;

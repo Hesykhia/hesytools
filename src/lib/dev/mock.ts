@@ -308,7 +308,7 @@ export function install() {
                 at: Date.now() - 400,
                 data: {
                   status: { souls: "33.88 trillion", sps: "312.32 million", perClick: "1,748", pending: "+19" },
-                  stats: { favors: 42, crystals: 3, gens: 318, upgrades: 57, rituals: 2, orbClicks: 18520, last: "Bought Golden Idol" },
+                  stats: { plan: "Working toward 25 Denizen (doubles them)", favors: 42, crystals: 3, gens: 318, upgrades: 57, rituals: 2, orbClicks: 18520, last: "Bought Golden Idol" },
                   ritual: { can: true, pending: 19, bonus: 24, pendingBonus: 38 },
                 },
               }
@@ -317,7 +317,7 @@ export function install() {
         case "open_link":
           return;
         case "soul_helper_version":
-          return "1.2.0";
+          return "1.3.0";
         case "make_dev_code":
           settings.issuedCodes = [
             { name: a.name.trim(), code: "HT-" + btoa(a.name + "-demo-signature-0123456789").replace(/=/g, ""), madeAt: Date.now() },

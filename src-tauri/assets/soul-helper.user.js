@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         hesytools · Soul Clicker helper
 // @namespace    hesytools
-// @version      1.2.0
+// @version      1.3.0
 // @description  Lets hesytools play Soul Clicker for you: catches favors, buys, runs the Ritual. Only presses the game's own buttons.
 // @match        https://www.deadchaps.gg/soul-clicker*
 // @match        https://deadchaps.gg/soul-clicker*
@@ -22,7 +22,7 @@
 
   const BRIDGE = "http://127.0.0.1:__PORT__/soul";
   const TOKEN = "__TOKEN__";
-  const VERSION = "1.2.0";
+  const VERSION = "1.3.0";
 
   /** Off until hesytools says otherwise. */
   let cfg = {
@@ -36,9 +36,10 @@
     buyUpgrades: false,
     orb: false,
     orbCps: 8,
+    reserveMinutes: 0,
     ritual: { mode: "off", worth: 1.5, shards: 10 },
   };
-  const stats = { favors: 0, spheres: 0, crystals: 0, leeches: 0, blessings: 0, gens: 0, upgrades: 0, rituals: 0, orbClicks: 0, last: "" };
+  const stats = { plan: "", favors: 0, spheres: 0, crystals: 0, leeches: 0, blessings: 0, gens: 0, upgrades: 0, rituals: 0, orbClicks: 0, last: "" };
 
   // ── Reading the page ──────────────────────────────────────────────────────
   const WORDS = ["thousand", "million", "billion", "trillion", "quadrillion", "quintillion", "sextillion", "septillion", "octillion", "nonillion"];
@@ -124,7 +125,9 @@
 
   function buyUpgrade() {
     // "rumor" cards are the ??? ones that can't be bought yet.
-    const card = $$(".shelf button.card:not(.rumor)").find(isOpen);
+    const card = $$(".shelf button.card:not(.rumor)")
+      .filter(isOpen)
+      .find((c) => canSpend(parseNum(((c.getAttribute("aria-label") || "").match(/Costs (.+) souls/) || [])[1])));
     if (!card) return false;
     press(card);
     stats.upgrades++;
@@ -135,44 +138,94 @@
   /** The shop is set to Sell: never touch generators then. */
   const selling = () => !!$(".mode-toggle button.on.sell") || !!$(".gens button.gen.selling");
 
-  /** What each generator button offers right now, from its own label:
+  // Game rules (from Soul Clicker's code): each purchase raises a generator's
+  // price by 15%; owning 10/25/50/... of one unlocks a Curiosity Shop item
+  // that doubles its output, costing that many times its base price.
+  const GROWTH = 1.15;
+  const MILESTONES = [
+    [10, 10],
+    [25, 100],
+    [50, 1e3],
+    [100, 5e4],
+    [150, 5e6],
+    [200, 5e8],
+    [250, 5e10],
+  ];
+
+  /** Each generator as it stands, from its own button:
    * "Buy 10 Trooper for 1,100 souls, owned 5". */
-  function offers() {
+  function generators() {
     const out = [];
     for (const g of $$(".gens button.gen")) {
       if (g.classList.contains("mystery") || g.style.display === "none") continue;
-      const m = (g.getAttribute("aria-label") || "").match(/^Buy (\d+) (.+) for (.+) souls, owned/);
+      const m = (g.getAttribute("aria-label") || "").match(/^Buy (\d+) (.+) for (.+) souls, owned (\d+)/);
       if (!m) continue;
       const qty = parseInt(m[1], 10);
       const cost = parseNum(m[3]);
+      const owned = parseInt(m[4], 10);
       const each = parseNum(text(g.querySelector(".gen-sps")));
       if (!(qty > 0) || !(cost > 0) || !(each > 0)) continue;
-      out.push({ g, name: m[2], qty, cost, gain: each * qty, can: isOpen(g) });
+      // Price of the very next one, and the base price it grew from.
+      const next = qty === 1 ? cost : (cost * (GROWTH - 1)) / (Math.pow(GROWTH, qty) - 1);
+      const base = next / Math.pow(GROWTH, owned);
+      out.push({ g, name: m[2], qty, cost, owned, each, next, base, can: isOpen(g) });
     }
     return out;
   }
 
-  /** Buy the generator that pays for itself soonest: time to afford it at
-   * the current income, plus the time it takes to earn its price back. */
+  /** Everything you make per second: production plus what clicking earns. */
+  function income() {
+    const sps = parseNum(text($(".sps-line b"))) || 0;
+    const perClick = parseNum(text($(".sps-line span"))) || 0;
+    const clicks = cfg.enabled && cfg.orb ? Math.min(20, Math.max(1, cfg.orbCps || 8)) : 0;
+    return sps + clicks * perClick;
+  }
+
+  /** Pick what pays off soonest against your whole income: a plain buy, or
+   * working up to a generator's next milestone and its doubling item.
+   * payback = time to afford it + time for it to earn its price back. */
   function buyGenerator() {
     if (selling()) {
       stats.last = "Shop is in Sell mode, not buying";
+      stats.plan = "";
       return false;
     }
     const souls = parseNum(text($(".souls-count"))) || 0;
-    const sps = parseNum(text($(".sps-line b"))) || 0;
+    const earn = income();
+    const reserve = Math.max(0, cfg.reserveMinutes || 0) * 60 * earn;
+    const bank = Math.max(0, souls - reserve);
+    const payback = (cost, gain) => (cost <= bank ? 0 : earn > 0 ? (cost - bank) / earn : Infinity) + cost / gain;
     let best = null;
-    for (const o of offers()) {
-      const wait = o.cost <= souls ? 0 : sps > 0 ? (o.cost - souls) / sps : Infinity;
-      const payback = wait + o.cost / o.gain;
-      if (!best || payback < best.payback) best = { ...o, payback };
+    for (const o of generators()) {
+      const plain = { o, kind: "buy", score: payback(o.cost, o.each * o.qty) };
+      if (!best || plain.score < best.score) best = plain;
+      const goal = MILESTONES.find(([at]) => at > o.owned);
+      if (goal) {
+        const [at, x] = goal;
+        const need = at - o.owned;
+        const units = (o.next * (Math.pow(GROWTH, need) - 1)) / (GROWTH - 1);
+        // All `at` of them end up making twice as much.
+        const gain = (2 * at - o.owned) * o.each;
+        const push = { o, kind: "goal", at, score: payback(units + o.base * x, gain) };
+        if (push.score < best.score) best = push;
+      }
     }
-    // Save up for the best one rather than spending on worse ones.
-    if (!best || !best.can) return false;
-    press(best.g);
-    stats.gens += best.qty;
-    stats.last = "Bought " + (best.qty > 1 ? best.qty + " " : "") + best.name;
+    if (!best) return false;
+    const o = best.o;
+    stats.plan =
+      best.kind === "goal" ? "Working toward " + best.at + " " + o.name + " (doubles them)" : "Next: " + o.name;
+    // Wait (and keep the reserve) rather than spending on something worse.
+    if (!o.can || souls - o.cost < reserve) return false;
+    press(o.g);
+    stats.gens += o.qty;
+    stats.last = "Bought " + (o.qty > 1 ? o.qty + " " : "") + o.name;
     return true;
+  }
+
+  /** Don't spend into the reserve on upgrades either. */
+  function canSpend(cost) {
+    const souls = parseNum(text($(".souls-count"))) || 0;
+    return souls - cost >= Math.max(0, cfg.reserveMinutes || 0) * 60 * income();
   }
 
   // ── The Ritual ────────────────────────────────────────────────────────────

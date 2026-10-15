@@ -98,6 +98,7 @@ export interface SoulConfig {
   buyUpgrades: boolean;
   orb: boolean;
   orbCps: number;
+  reserveMinutes: number;
   ritual: { mode: RitualMode; worth: number; shards: number };
 }
 
@@ -108,6 +109,8 @@ export interface SoulReport {
     version?: string;
     status?: { souls: string; sps: string; perClick: string; pending: string };
     stats?: {
+      /** What the generator buyer is aiming for. */
+      plan?: string;
       favors: number;
       spheres?: number;
       crystals: number;
