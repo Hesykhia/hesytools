@@ -1,5 +1,6 @@
 // New versions from GitHub Releases: check, then download + install on request.
 
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, errorText, onUpdateProgress, type UpdateInfo } from "$lib/api";
 import { toast } from "$lib/toast.svelte";
 
@@ -58,9 +59,9 @@ export async function installUpdate() {
   }
 }
 
-const RECHECK_EVERY = 3 * 60 * 60 * 1000;
+const RECHECK_EVERY = 30 * 60 * 1000;
 /** Coming back to the window rechecks, at most this often. */
-const RECHECK_ON_FOCUS = 30 * 60 * 1000;
+const RECHECK_ON_FOCUS = 2 * 60 * 1000;
 
 /**
  * Check shortly after launch, then every few hours and when the window comes
@@ -80,10 +81,24 @@ export function startAutoCheck(enabled: () => boolean): () => void {
   // A quiet check a few seconds after launch, so startup stays snappy.
   const first = setTimeout(check, 4000);
   const timer = setInterval(check, RECHECK_EVERY);
+  // The window's own focus event: opening it from the tray or alt-tabbing
+  // back doesn't always reach the page as a DOM focus.
+  let unlisten: (() => void) | undefined;
+  let stopped = false;
+  try {
+    getCurrentWindow()
+      .onFocusChanged(({ payload: focused }) => focused && onFocus())
+      .then((u) => (stopped ? u() : (unlisten = u)))
+      .catch(() => {});
+  } catch {
+    // Browser preview: no Tauri window.
+  }
   addEventListener("focus", onFocus);
   return () => {
+    stopped = true;
     clearTimeout(first);
     clearInterval(timer);
+    unlisten?.();
     removeEventListener("focus", onFocus);
   };
 }
