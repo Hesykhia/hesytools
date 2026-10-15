@@ -10,7 +10,7 @@
   import MacroEditor from "$lib/components/macros/MacroEditor.svelte";
   import RecordingBar from "$lib/components/macros/RecordingBar.svelte";
   import { activity, initActivity } from "$lib/activity.svelte";
-  import WatchPreview from "$lib/components/WatchPreview.svelte";
+  import WatchPage from "$lib/components/watch/WatchPage.svelte";
   import SettingsSheet from "$lib/components/SettingsSheet.svelte";
 
   type Page = "macros" | "watch";
@@ -96,7 +96,7 @@
             <QuickClicker bind:settings bind:running />
             <MacroLibrary bind:settings onopen={openMacro} />
           {:else}
-            <WatchPreview />
+            <WatchPage bind:settings />
           {/if}
           {#if settings.panicHotkey}
             <div class="panic">

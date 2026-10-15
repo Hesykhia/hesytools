@@ -5,10 +5,12 @@
 //! becomes one "Press E" step instead of a down/up pair, mouse movement
 //! becomes a single path step, and the gaps between actions become waits.
 
+use crate::capture::Region;
 use crate::hooks::{InputEvent, InputKind};
 use crate::input;
 use crate::keys::{Key, MouseButton};
 use crate::timer::Waiter;
+use crate::watch::{Condition, Watcher};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
@@ -34,6 +36,20 @@ pub struct PathPoint {
 
 fn default_hold() -> f64 {
     30.0
+}
+
+fn default_poll() -> f64 {
+    100.0
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum OnTimeout {
+    /// Carry on with the next step.
+    #[default]
+    Continue,
+    /// Stop the whole macro.
+    Stop,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -73,6 +89,19 @@ pub enum Step {
     Text { text: String },
     /// Runs `steps` `times` times; 0 = forever.
     Repeat { times: u32, steps: Vec<Step> },
+    /// Pause until something shows up on screen (text, a number, a colour).
+    #[serde(rename_all = "camelCase")]
+    WaitFor {
+        region: Region,
+        condition: Condition,
+        /// Give up after this long; 0 = wait forever.
+        #[serde(default)]
+        timeout_ms: f64,
+        #[serde(default = "default_poll")]
+        poll_ms: f64,
+        #[serde(default)]
+        on_timeout: OnTimeout,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -116,6 +145,7 @@ impl Macro {
                     Step::Click { action: PressAction::Tap, hold_ms, .. } => *hold_ms,
                     Step::Path { points } => points.last().map_or(0.0, |p| p.t),
                     Step::Repeat { times, steps } => dur(steps) * (*times).max(1) as f64,
+                    // Screen waits take as long as the screen takes: not counted.
                     _ => 0.0,
                 })
                 .sum()
@@ -341,7 +371,14 @@ impl Recorder {
 /// cancelled. `on_step(index, iteration)` fires as each top-level step starts.
 /// Anything still held down is released at the end, no matter what.
 pub fn play(m: &Macro, waiter: &Waiter, mut on_step: impl FnMut(usize, u32)) -> PlayResult {
-    let mut p = Player { waiter, speed: m.speed.clamp(0.05, 20.0), held_keys: HashSet::new(), held_buttons: HashSet::new(), blocked: 0 };
+    let mut p = Player {
+        waiter,
+        speed: m.speed.clamp(0.05, 20.0),
+        held_keys: HashSet::new(),
+        held_buttons: HashSet::new(),
+        blocked: 0,
+        error: None,
+    };
     let mut iteration = 0u32;
     let finished = loop {
         if m.repeat != 0 && iteration >= m.repeat {
@@ -361,16 +398,18 @@ pub fn play(m: &Macro, waiter: &Waiter, mut on_step: impl FnMut(usize, u32)) -> 
         }
     };
     p.release_all();
-    PlayResult { finished, iterations: iteration, blocked: p.blocked }
+    PlayResult { finished, iterations: iteration, blocked: p.blocked, error: p.error }
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayResult {
     /// False if stopped early.
     pub finished: bool,
     pub iterations: u32,
     pub blocked: u64,
+    /// Why playback stopped on its own, if it did (e.g. a screen wait timed out).
+    pub error: Option<String>,
 }
 
 struct Player<'a> {
@@ -379,6 +418,7 @@ struct Player<'a> {
     held_keys: HashSet<Key>,
     held_buttons: HashSet<MouseButton>,
     blocked: u64,
+    error: Option<String>,
 }
 
 impl Player<'_> {
@@ -470,6 +510,35 @@ impl Player<'_> {
                     }
                 }
                 true
+            }
+            Step::WaitFor { region, condition, timeout_ms, poll_ms, on_timeout } => {
+                let mut w = match Watcher::new(*region, condition.clone()) {
+                    Ok(w) => w,
+                    Err(e) => {
+                        self.error = Some(e);
+                        return false;
+                    }
+                };
+                let start = Instant::now();
+                // Polling isn't scaled by playback speed: the screen is the screen.
+                let poll = Duration::from_secs_f64(poll_ms.clamp(16.0, 10_000.0) / 1000.0);
+                loop {
+                    if let Ok(c) = w.check() {
+                        if c.matched {
+                            return true;
+                        }
+                    }
+                    if *timeout_ms > 0.0 && start.elapsed().as_secs_f64() * 1000.0 >= *timeout_ms {
+                        if *on_timeout == OnTimeout::Stop {
+                            self.error = Some("A screen wait timed out".into());
+                            return false;
+                        }
+                        return true;
+                    }
+                    if !self.waiter.wait(poll) {
+                        return false;
+                    }
+                }
             }
             Step::Repeat { times, steps } => {
                 let mut n = 0;

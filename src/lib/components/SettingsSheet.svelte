@@ -108,7 +108,7 @@
           </span>
           <div class="text">
             <b>Discord alerts</b>
-            <small>Get a message when a clicker or macro finishes. Screen-watch alerts come later.</small>
+            <small>Get a message when a clicker or macro finishes, or a screen watch triggers.</small>
           </div>
         </div>
         <div class="fields">

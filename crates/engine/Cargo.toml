@@ -14,6 +14,12 @@ ureq = { version = "3", features = ["json"] }
 [dependencies.windows]
 version = "0.62"
 features = [
+    "Foundation",
+    "Globalization",
+    "Graphics_Imaging",
+    "Media_Ocr",
+    "Security_Cryptography",
+    "Storage_Streams",
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_Security",

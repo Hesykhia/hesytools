@@ -1,0 +1,266 @@
+//! Watching a screen region for a condition.
+//!
+//! The key to staying cheap: every check captures the region (sub-ms), but
+//! OCR only runs when the pixels actually changed since the last check. A
+//! static screen therefore costs almost nothing however often it's polled.
+
+use crate::capture::{self, Frame, Region};
+use crate::ocr::Ocr;
+use serde::{Deserialize, Serialize};
+use std::time::Instant;
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Cmp {
+    #[serde(rename = ">=")]
+    AtLeast,
+    #[serde(rename = "<=")]
+    AtMost,
+    #[serde(rename = "==")]
+    Equal,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Condition {
+    /// Any of the comma-separated phrases appears (case-insensitive).
+    TextAppears { text: String },
+    /// None of the phrases are visible any more.
+    TextGone { text: String },
+    /// Any number in the region compares true against `value`, so a box
+    /// showing "WAVE 12 · 1.25e+25" still matches `>= 1e25`.
+    /// Understands 1,234 · 1.25e+25 · 12.5K / 3M / 1.2B / 4T.
+    Number { op: Cmp, value: f64 },
+    /// The pixel at (dx, dy) inside the region is within `tolerance` of `rgb`.
+    #[serde(rename_all = "camelCase")]
+    ColorAt { dx: u32, dy: u32, rgb: [u8; 3], tolerance: u8 },
+    /// Anything in the region changed since watching began.
+    Changes,
+}
+
+impl Condition {
+    pub fn needs_ocr(&self) -> bool {
+        matches!(self, Condition::TextAppears { .. } | Condition::TextGone { .. } | Condition::Number { .. })
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Check {
+    pub matched: bool,
+    /// What OCR read (if the condition uses OCR).
+    pub text: Option<String>,
+    /// For number conditions: the number that matched, else the first found.
+    pub number: Option<f64>,
+    /// Every number found in the text.
+    pub numbers: Vec<f64>,
+    /// Whether this check had to run OCR (false = pixels unchanged, reused).
+    pub ocr_ran: bool,
+    pub capture_ms: f64,
+    pub ocr_ms: f64,
+}
+
+pub struct Watcher {
+    pub region: Region,
+    pub condition: Condition,
+    ocr: Option<Ocr>,
+    last_fp: Option<u64>,
+    baseline_fp: Option<u64>,
+    last: Option<Check>,
+    /// The most recent capture, for the live viewer.
+    pub frame: Option<Frame>,
+}
+
+impl Watcher {
+    pub fn new(region: Region, condition: Condition) -> Result<Self, String> {
+        let ocr = if condition.needs_ocr() { Some(Ocr::new()?) } else { None };
+        Ok(Self { region, condition, ocr, last_fp: None, baseline_fp: None, last: None, frame: None })
+    }
+
+    pub fn check(&mut self) -> Result<Check, String> {
+        let t = Instant::now();
+        let frame = capture::capture(self.region)?;
+        let capture_ms = t.elapsed().as_secs_f64() * 1000.0;
+        let fp = frame.fingerprint();
+        let baseline = *self.baseline_fp.get_or_insert(fp);
+        let unchanged = self.last_fp == Some(fp);
+        self.last_fp = Some(fp);
+
+        let check = match &self.condition {
+            Condition::Changes => Check { matched: fp != baseline, ..empty(capture_ms) },
+            Condition::ColorAt { dx, dy, rgb, tolerance } => {
+                let matched = frame.pixel(*dx, *dy).is_some_and(|p| {
+                    p.iter().zip(rgb).all(|(a, b)| (*a as i16 - *b as i16).unsigned_abs() <= *tolerance as u16)
+                });
+                Check { matched, ..empty(capture_ms) }
+            }
+            cond => {
+                if unchanged && let Some(prev) = &self.last {
+                    // Same pixels as last time: same answer, no OCR.
+                    Check { ocr_ran: false, capture_ms, ocr_ms: 0.0, ..prev.clone() }
+                } else {
+                    let ocr = self.ocr.as_ref().ok_or("OCR not initialised")?;
+                    let t = Instant::now();
+                    let text = ocr.read(&frame)?;
+                    let ocr_ms = t.elapsed().as_secs_f64() * 1000.0;
+                    let numbers = parse_numbers(&text);
+                    let hit = match cond {
+                        Condition::Number { op, value } => numbers.iter().copied().find(|n| compare(*n, *op, *value)),
+                        _ => None,
+                    };
+                    let matched = match cond {
+                        Condition::TextAppears { text: want } => contains_any(&text, want),
+                        Condition::TextGone { text: want } => !contains_any(&text, want),
+                        Condition::Number { .. } => hit.is_some(),
+                        _ => unreachable!(),
+                    };
+                    let number = hit.or(numbers.first().copied());
+                    Check { matched, text: Some(text), number, numbers, ocr_ran: true, capture_ms, ocr_ms }
+                }
+            }
+        };
+        self.frame = Some(frame);
+        self.last = Some(check.clone());
+        Ok(check)
+    }
+}
+
+fn empty(capture_ms: f64) -> Check {
+    Check { matched: false, text: None, number: None, numbers: Vec::new(), ocr_ran: false, capture_ms, ocr_ms: 0.0 }
+}
+
+fn contains_any(haystack: &str, phrases: &str) -> bool {
+    let hay = normalize(haystack);
+    phrases.split(',').map(normalize).filter(|p| !p.is_empty()).any(|p| hay.contains(&p))
+}
+
+/// Lowercase and collapse whitespace so line breaks don't break matches.
+fn normalize(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+fn compare(n: f64, op: Cmp, v: f64) -> bool {
+    match op {
+        Cmp::AtLeast => n >= v,
+        Cmp::AtMost => n <= v,
+        // Relative tolerance so 1.25e+25 == 1.25e25 despite float noise.
+        Cmp::Equal => (n - v).abs() <= v.abs().max(1.0) * 1e-9,
+    }
+}
+
+/// First number in the text.
+pub fn parse_number(text: &str) -> Option<f64> {
+    parse_numbers(text).into_iter().next()
+}
+
+/// Every number in the text, in order. Handles thousands separators,
+/// decimals, scientific notation and K/M/B/T suffixes (as games love).
+pub fn parse_numbers(text: &str) -> Vec<f64> {
+    let s: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < s.len() {
+        if !s[i].is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+        let negative = i > 0 && s[i - 1] == '-';
+        let mut num = String::new();
+        // Integer part with optional thousands separators.
+        while i < s.len() && (s[i].is_ascii_digit() || (s[i] == ',' && s.get(i + 1).is_some_and(|c| c.is_ascii_digit()))) {
+            if s[i] != ',' {
+                num.push(s[i]);
+            }
+            i += 1;
+        }
+        if i < s.len() && s[i] == '.' && s.get(i + 1).is_some_and(|c| c.is_ascii_digit()) {
+            num.push('.');
+            i += 1;
+            while i < s.len() && s[i].is_ascii_digit() {
+                num.push(s[i]);
+                i += 1;
+            }
+        }
+        // Exponent: e25, e+25, E-3
+        if i < s.len() && (s[i] == 'e' || s[i] == 'E') {
+            let mut j = i + 1;
+            let mut exp = String::from("e");
+            if j < s.len() && (s[j] == '+' || s[j] == '-') {
+                exp.push(s[j]);
+                j += 1;
+            }
+            if j < s.len() && s[j].is_ascii_digit() {
+                while j < s.len() && s[j].is_ascii_digit() {
+                    exp.push(s[j]);
+                    j += 1;
+                }
+                num.push_str(&exp);
+                i = j;
+            }
+        }
+        let Ok(mut value) = num.parse::<f64>() else { continue };
+        // Suffix like 12.5K, 3M, 1.2B, 4T, 2Qa (only directly after the number).
+        let rest: String = s[i..].iter().take(2).collect::<String>().to_lowercase();
+        let mult = if rest.starts_with("qa") {
+            1e15
+        } else if rest.starts_with("qi") {
+            1e18
+        } else {
+            match rest.chars().next() {
+                Some('k') => 1e3,
+                Some('m') => 1e6,
+                Some('b') => 1e9,
+                Some('t') => 1e12,
+                _ => 1.0,
+            }
+        };
+        // Avoid reading "5 min" or "3 ms" as millions: suffix must not start a word.
+        let is_word = s.get(i + 1).is_some_and(|c| c.is_alphabetic()) && !rest.starts_with("qa") && !rest.starts_with("qi");
+        if mult != 1.0 && !is_word {
+            value *= mult;
+            i += if mult >= 1e15 { 2 } else { 1 };
+        }
+        out.push(if negative { -value } else { value });
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn numbers() {
+        assert_eq!(parse_number("Coins: 1,234,567"), Some(1_234_567.0));
+        assert_eq!(parse_number("WAVE 12"), Some(12.0));
+        assert_eq!(parse_number("1.25e+25"), Some(1.25e25));
+        assert_eq!(parse_number("x 3E-3 y"), Some(0.003));
+        assert_eq!(parse_number("12.5K"), Some(12_500.0));
+        assert_eq!(parse_number("$3M"), Some(3_000_000.0));
+        assert_eq!(parse_number("1.2B gems"), Some(1.2e9));
+        assert_eq!(parse_number("2Qa"), Some(2e15));
+        assert_eq!(parse_number("5 min left"), Some(5.0));
+        assert_eq!(parse_number("wait 3ms"), Some(3.0));
+        assert_eq!(parse_number("-40 hp"), Some(-40.0));
+        assert_eq!(parse_number("no digits"), None);
+        assert_eq!(parse_numbers("WAVE 12\n1.25e+25 · 3.5K"), vec![12.0, 1.25e25, 3500.0]);
+    }
+
+    #[test]
+    fn text_matching() {
+        assert!(contains_any("Rebirth\nREADY!", "ready"));
+        assert!(contains_any("Press  Start", "nope, press start"));
+        assert!(!contains_any("Loading", "ready, done"));
+        assert!(compare(1.25e25, Cmp::Equal, 1.25e25));
+        assert!(compare(10.0, Cmp::AtLeast, 10.0));
+    }
+
+    #[test]
+    fn condition_json() {
+        let c = Condition::Number { op: Cmp::AtLeast, value: 1e25 };
+        let json = serde_json::to_string(&c).unwrap();
+        assert_eq!(json, r#"{"kind":"number","op":">=","value":1e+25}"#);
+        let c: Condition = serde_json::from_str(r#"{"kind":"colorAt","dx":1,"dy":2,"rgb":[255,0,0],"tolerance":20}"#).unwrap();
+        assert!(matches!(c, Condition::ColorAt { tolerance: 20, .. }));
+    }
+}

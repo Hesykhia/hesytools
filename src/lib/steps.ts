@@ -9,6 +9,7 @@ export const STEP_TYPES: { type: StepType; label: string; hint: string }[] = [
   { type: "move", label: "Move mouse", hint: "Jump to a spot" },
   { type: "scroll", label: "Scroll", hint: "Wheel up or down" },
   { type: "text", label: "Type text", hint: "Chat messages, forms" },
+  { type: "waitFor", label: "Wait for screen", hint: "Until text, a number or colour shows" },
   { type: "repeat", label: "Repeat", hint: "Loop a group of steps" },
 ];
 
@@ -22,6 +23,7 @@ export const ICON: Record<StepType, string> = {
   scroll: "M12 3a5 5 0 0 1 5 5v8a5 5 0 0 1-10 0V8a5 5 0 0 1 5-5zm0 4v3",
   text: "M4 7V5h16v2M9 19h6M12 5v14",
   repeat: "M17 2l4 4-4 4M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v1a4 4 0 0 1-4 4H3",
+  waitFor: "M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12zm10 2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z",
 };
 
 export const TINT: Record<StepType, string> = {
@@ -33,6 +35,7 @@ export const TINT: Record<StepType, string> = {
   scroll: "cyan",
   text: "amber",
   repeat: "mint",
+  waitFor: "cyan",
 };
 
 export const BUTTON_LABEL: Record<MouseButton, string> = {
@@ -61,6 +64,15 @@ export function defaultStep(type: StepType): Step {
       return { type, text: "gg" };
     case "repeat":
       return { type, times: 3, steps: [] };
+    case "waitFor":
+      return {
+        type,
+        region: { x: 0, y: 0, w: 0, h: 0 },
+        condition: { kind: "textAppears", text: "" },
+        timeoutMs: 30000,
+        pollMs: 100,
+        onTimeout: "continue",
+      };
   }
 }
 
@@ -127,6 +139,8 @@ function shortText(s: Step): string {
       return `“${s.text.slice(0, 12)}”`;
     case "repeat":
       return `Repeat ×${s.times || "∞"}`;
+    case "waitFor":
+      return "Wait for screen";
     default:
       return "";
   }

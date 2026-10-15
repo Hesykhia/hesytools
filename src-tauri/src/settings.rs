@@ -3,7 +3,9 @@
 use engine::clicker::ClickerConfig;
 use engine::hotkey::Hotkey;
 use engine::keys::Key;
+use engine::capture::Region;
 use engine::macros::RecordOptions;
+use engine::watch::Condition;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -38,6 +40,49 @@ impl Default for WebhookSettings {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum WatchAction {
+    /// Only alert (Discord, if set up) / show in the app.
+    Notify,
+    #[serde(rename_all = "camelCase")]
+    RunMacro { macro_id: String },
+    StopEverything,
+}
+
+/// A background rule: when `condition` becomes true in `region`, do `action`.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WatchRule {
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    pub region: Region,
+    pub condition: Condition,
+    pub poll_ms: f64,
+    pub action: WatchAction,
+    /// Also send a Discord alert when it triggers.
+    pub discord: bool,
+    /// Don't trigger again within this long.
+    pub cooldown_ms: f64,
+}
+
+impl Default for WatchRule {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: "New watch".into(),
+            enabled: false,
+            region: Region::default(),
+            condition: Condition::TextAppears { text: String::new() },
+            poll_ms: 250.0,
+            action: WatchAction::Notify,
+            discord: false,
+            cooldown_ms: 5000.0,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -50,6 +95,7 @@ pub struct Settings {
     pub record_hotkey: Option<Hotkey>,
     pub record: RecordOptions,
     pub webhook: WebhookSettings,
+    pub watches: Vec<WatchRule>,
 }
 
 impl Default for Settings {
@@ -62,6 +108,7 @@ impl Default for Settings {
             record_hotkey: Key::from_name("F9").map(Hotkey::key),
             record: RecordOptions::default(),
             webhook: WebhookSettings::default(),
+            watches: Vec::new(),
         }
     }
 }

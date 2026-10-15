@@ -7,6 +7,9 @@
   import Popover from "../ui/Popover.svelte";
   import StepIcon from "../ui/StepIcon.svelte";
   import StepList from "./StepList.svelte";
+  import ConditionEditor from "../watch/ConditionEditor.svelte";
+  import RegionChip from "../watch/RegionChip.svelte";
+  import WatchViewer from "../watch/WatchViewer.svelte";
 
   let {
     steps,
@@ -45,6 +48,8 @@
     rows[steps.length - 1]?.querySelector<HTMLElement>("input, .chip")?.focus();
   }
 
+  /** Screen-wait step whose live view is open. */
+  let viewing = $state<Step | null>(null);
   let capturing = $state(-1);
   async function captureKey(i: number) {
     const s = steps[i];
@@ -180,7 +185,7 @@
             <span class="soft">{Math.abs(s.amount) === 120 ? "notch" : "notches"}</span>
           {:else if s.type === "text"}
             <span>Type</span>
-            <input class="text-in" bind:value={s.text} placeholder="text to type" style:width="{Math.max(6, s.text.length + 2)}ch" />
+            <input class="text-in" type="text" bind:value={s.text} placeholder="text to type" style:width="{Math.max(6, s.text.length + 2)}ch" />
           {:else if s.type === "repeat"}
             <span>Repeat</span>
             {#if s.times === 0}
@@ -191,6 +196,25 @@
               <button class="mini" onclick={() => (s.times = 0)}>forever</button>
             {/if}
             <span class="soft">· {formatMs(durationMs(s.steps))} each</span>
+          {:else if s.type === "waitFor"}
+            <span>Wait until</span>
+            <ConditionEditor bind:condition={s.condition} />
+            <span class="soft">in</span>
+            <RegionChip bind:region={s.region} />
+            <span class="soft">· give up after</span>
+            {#if s.timeoutMs > 0}
+              <InlineNumber value={s.timeoutMs / 1000} min={0.1} onchange={(v) => (s.timeoutMs = Math.round(v * 1000))} />
+              <span class="soft">s and</span>
+              <button class="chip" onclick={() => (s.onTimeout = s.onTimeout === "stop" ? "continue" : "stop")}>
+                {s.onTimeout === "stop" ? "stop the macro" : "carry on"}
+              </button>
+              <button class="mini" onclick={() => (s.timeoutMs = 0)}>never</button>
+            {:else}
+              <button class="chip" onclick={() => (s.timeoutMs = 30000)}>never</button>
+            {/if}
+            <button class="mini" class:busy={viewing === s} onclick={() => (viewing = viewing === s ? null : s)}>
+              {viewing === s ? "hide live view" : "live view"}
+            </button>
           {/if}
         </div>
         <span class="tools">
@@ -203,6 +227,18 @@
       {#if s.type === "repeat"}
         <li class="nest">
           <StepList steps={s.steps} depth={depth + 1} />
+        </li>
+      {:else if s.type === "waitFor" && viewing === s}
+        <li class="live-view">
+          <WatchViewer
+            region={s.region}
+            condition={s.condition}
+            onpickcolor={s.condition.kind === "colorAt"
+              ? (dx, dy, rgb) => {
+                  if (s.condition.kind === "colorAt") Object.assign(s.condition, { dx, dy, rgb });
+                }
+              : undefined}
+          />
         </li>
       {/if}
     {/if}
@@ -415,6 +451,13 @@
   }
   .nest {
     list-style: none;
+  }
+  .live-view {
+    margin: 6px 0 2px 40px;
+    padding: 14px;
+    border-radius: 14px;
+    background: rgba(56, 214, 255, 0.04);
+    border: 1px solid rgba(56, 214, 255, 0.2);
   }
 
   .add-row {

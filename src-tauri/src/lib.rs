@@ -1,16 +1,20 @@
 mod macro_store;
 mod settings;
+mod watch_runner;
 
 use engine::clicker::{Clicker, ClickerConfig, ClickerStatus, ExitReason};
 use engine::hooks::InputKind;
 use engine::hotkey::{Hotkey, HotkeyManager, Trigger};
 use engine::macros::{self, Macro, RecordOptions, Recorder, Step};
 use engine::timer::Waiter;
-use engine::{elevation, hooks, input, webhook};
+use engine::capture::Region;
+use engine::watch::{Check, Condition, Watcher};
+use engine::{elevation, hooks, input, picker, webhook};
 use macro_store::MacroStore;
 use parking_lot::Mutex;
 use serde::Serialize;
-use settings::{HotkeyMode, Settings, Store, WebhookSettings};
+use settings::{HotkeyMode, Settings, Store, WatchAction, WatchRule, WebhookSettings};
+use watch_runner::WatchRunner;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::thread::JoinHandle;
@@ -39,6 +43,10 @@ struct App {
     recorder: Mutex<Option<Recorder>>,
     /// Our main window, so the recorder can ignore clicks on hesytools itself.
     main_hwnd: AtomicIsize,
+    /// The live viewer's watcher, kept between polls so OCR is skipped while
+    /// the region is unchanged. Keyed by its region+condition.
+    viewer: Mutex<Option<(String, Watcher)>>,
+    watches: WatchRunner,
 }
 
 type AppState<'a> = State<'a, Arc<App>>;
@@ -106,6 +114,9 @@ fn play_macro_by_id(app: &AppHandle, a: &Arc<App>, id: &str) -> Result<(), Strin
                 }
             });
             let _ = handle.emit("macro-state", Option::<String>::None);
+            if let Some(err) = &result.error {
+                let _ = handle.emit("toast", format!("“{}” stopped: {err}", m.name));
+            }
             if result.blocked > 0 {
                 let _ = handle.emit("toast", "Windows blocked some input: that window runs as admin. See Settings → Admin mode.");
             }
@@ -207,7 +218,18 @@ fn on_hotkey(app: &AppHandle, id: &str, pressed: bool) {
     let result = match id {
         HK_PANIC if pressed => {
             stop_everything(app, &a);
-            let _ = app.emit("toast", "Panic key: everything stopped");
+            // Watches could immediately restart a macro, so they go off too.
+            let had_watches = a.settings.lock().watches.iter().any(|w| w.enabled);
+            if had_watches {
+                let _ = set_watches_enabled(app, &a, false);
+            }
+            let msg = if had_watches {
+                "Panic key: everything stopped, screen watches turned off"
+            } else {
+                "Panic key: everything stopped"
+            };
+            let _ = app.emit("toast", msg);
+            let _ = app.emit("settings-changed", a.settings.lock().clone());
             Ok(())
         }
         HK_CLICKER => {
@@ -276,6 +298,68 @@ fn hotkey_owner(a: &App, hk: Hotkey, except: &str) -> Option<String> {
         .chain(macro_ids)
         .find(|(id, h, _)| id != except && *h == Some(hk))
         .map(|(_, _, name)| name)
+}
+
+// ── Screen Watch ────────────────────────────────────────────────────────────
+
+fn sync_watches(app: &AppHandle, a: &Arc<App>) {
+    let rules = a.settings.lock().watches.clone();
+    let (handle, a2) = (app.clone(), Arc::downgrade(a));
+    a.watches.sync(
+        app,
+        &rules,
+        Arc::new(move |rule: &WatchRule| {
+            let Some(a) = a2.upgrade() else { return };
+            let _ = handle.emit("watch-hit", rule.id.clone());
+            let result = match &rule.action {
+                WatchAction::Notify => {
+                    let _ = handle.emit("toast", format!("Screen watch “{}” triggered", rule.name));
+                    Ok(())
+                }
+                WatchAction::RunMacro { macro_id } => play_macro_by_id(&handle, &a, macro_id),
+                WatchAction::StopEverything => {
+                    stop_everything(&handle, &a);
+                    Ok(())
+                }
+            };
+            if let Err(e) = result {
+                let _ = handle.emit("toast", format!("Screen watch “{}”: {e}", rule.name));
+            }
+            if rule.discord {
+                notify(&handle, &a, &format!("Screen watch “{}” triggered", rule.name), &describe_watch(rule));
+            }
+        }),
+    );
+}
+
+fn describe_watch(rule: &WatchRule) -> String {
+    use engine::watch::Cmp;
+    let what = match &rule.condition {
+        Condition::TextAppears { text } => format!("“{text}” appeared"),
+        Condition::TextGone { text } => format!("“{text}” disappeared"),
+        Condition::Number { op, value } => {
+            let op = match op {
+                Cmp::AtLeast => "≥",
+                Cmp::AtMost => "≤",
+                Cmp::Equal => "=",
+            };
+            format!("The number reached {op} {value}")
+        }
+        Condition::ColorAt { .. } => "The colour matched".into(),
+        Condition::Changes => "The area changed".into(),
+    };
+    let action = match &rule.action {
+        WatchAction::Notify => String::new(),
+        WatchAction::RunMacro { .. } => " Running its macro.".into(),
+        WatchAction::StopEverything => " Stopped everything.".into(),
+    };
+    format!("{what}.{action}")
+}
+
+fn set_watches_enabled(app: &AppHandle, a: &Arc<App>, on: bool) -> Result<(), String> {
+    a.update(|s| s.watches.iter_mut().for_each(|w| w.enabled = on))?;
+    sync_watches(app, a);
+    Ok(())
 }
 
 // ── Commands: settings & clicker ────────────────────────────────────────────
@@ -438,6 +522,93 @@ fn recording_stop(app: AppHandle, a: AppState) {
     stop_recording(&app, &a);
 }
 
+// ── Commands: screen watch ──────────────────────────────────────────────────
+
+/// Hide hesytools, let the user drag a box on screen, then come back.
+#[tauri::command]
+async fn pick_region(app: AppHandle) -> Result<Option<Region>, String> {
+    let win = app.get_webview_window("main");
+    if let Some(w) = &win {
+        let _ = w.minimize();
+    }
+    // Let the minimize animation finish so our own window isn't in the way.
+    tokio_sleep(250).await;
+    let region = tauri::async_runtime::spawn_blocking(picker::pick_region).await.map_err(|e| e.to_string())?;
+    if let Some(w) = &win {
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+    Ok(region)
+}
+
+async fn tokio_sleep(ms: u64) {
+    let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(Duration::from_millis(ms))).await;
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ViewerCheck {
+    #[serde(flatten)]
+    check: Check,
+    width: u32,
+    height: u32,
+}
+
+/// One live-viewer tick: capture + evaluate. OCR only re-runs when the
+/// region's pixels changed since the previous tick.
+#[tauri::command]
+async fn viewer_check(a: AppState<'_>, region: Region, condition: Condition) -> Result<ViewerCheck, String> {
+    let key = serde_json::to_string(&(region, &condition)).unwrap_or_default();
+    let a = a.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut slot = a.viewer.lock();
+        if slot.as_ref().is_none_or(|(k, _)| *k != key) {
+            *slot = Some((key, Watcher::new(region, condition)?));
+        }
+        let (_, w) = slot.as_mut().expect("just set");
+        let check = w.check()?;
+        let (width, height) = w.frame.as_ref().map_or((0, 0), |f| (f.w, f.h));
+        Ok(ViewerCheck { check, width, height })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The viewer's latest capture as raw bytes: u32 width, u32 height (LE),
+/// then RGBA pixels, scaled down to at most `max_width` wide.
+#[tauri::command]
+fn viewer_frame(a: AppState, max_width: u32) -> tauri::ipc::Response {
+    let slot = a.viewer.lock();
+    let Some(frame) = slot.as_ref().and_then(|(_, w)| w.frame.as_ref()) else {
+        return tauri::ipc::Response::new(Vec::new());
+    };
+    let t = frame.thumbnail(max_width.clamp(16, 1600));
+    let mut out = Vec::with_capacity(8 + t.bgra.len());
+    out.extend_from_slice(&t.w.to_le_bytes());
+    out.extend_from_slice(&t.h.to_le_bytes());
+    for px in t.bgra.chunks_exact(4) {
+        out.extend_from_slice(&[px[2], px[1], px[0], 255]);
+    }
+    tauri::ipc::Response::new(out)
+}
+
+#[tauri::command]
+fn viewer_stop(a: AppState) {
+    *a.viewer.lock() = None;
+}
+
+#[tauri::command]
+fn save_watches(app: AppHandle, a: AppState, mut watches: Vec<WatchRule>) -> Result<Vec<WatchRule>, String> {
+    for w in &mut watches {
+        if w.id.is_empty() {
+            w.id = macro_store::new_id().replacen('m', "w", 1);
+        }
+    }
+    let s = a.update(|s| s.watches = watches)?;
+    sync_watches(&app, &a);
+    Ok(s.watches)
+}
+
 // ── Commands: webhook & system ──────────────────────────────────────────────
 
 #[tauri::command]
@@ -511,8 +682,11 @@ pub fn run() {
                 playing: Mutex::new(None),
                 recorder: Mutex::new(None),
                 main_hwnd: AtomicIsize::new(main_hwnd),
+                viewer: Mutex::new(None),
+                watches: WatchRunner::default(),
             });
             apply_hotkeys(&a);
+            sync_watches(app.handle(), &a);
             app.manage(a);
             Ok(())
         })
@@ -536,6 +710,11 @@ pub fn run() {
             activity_status,
             recording_start,
             recording_stop,
+            pick_region,
+            viewer_check,
+            viewer_frame,
+            viewer_stop,
+            save_watches,
             set_webhook,
             test_webhook,
             system_info,

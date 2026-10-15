@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Preview of Screen Watch: a mock of the live viewer showing what the
-  // OCR region "sees", plus the kinds of triggers it will support.
+  // Intro shown before any watch exists: a mock of the live viewer plus the
+  // kinds of conditions available.
   const FEATURES = [
     { title: "Read text & numbers", body: "Wait until “Ready” shows up, or a value goes past 1e+25.", tint: "violet" },
     { title: "Match a colour", body: "React the moment a pixel turns red, like a health bar.", tint: "pink" },
@@ -11,7 +11,7 @@
 <div class="wrap">
   <section class="hero glass">
     <div class="copy">
-      <span class="badge">Coming soon</span>
+      <span class="badge">How it works</span>
       <h2>Screen Watch</h2>
       <p>
         Draw a box anywhere on screen and hesytools watches it for you, with a live view of exactly what it's reading. It only

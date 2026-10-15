@@ -22,7 +22,58 @@ const settings: Settings = {
   recordHotkey: "F9",
   record: { recordMoves: false, minWaitMs: 1 },
   webhook: { url: "", mentionUserId: "", notifyClickerFinished: true, notifyMacroFinished: true },
+  watches: [
+    {
+      id: "w1",
+      name: "Rebirth ready",
+      enabled: true,
+      region: { x: 706, y: 35, w: 320, h: 80 },
+      condition: { kind: "number", op: ">=", value: 1e25 },
+      pollMs: 250,
+      action: { kind: "runMacro", macroId: "m1" },
+      discord: true,
+      cooldownMs: 5000,
+    },
+    {
+      id: "w2",
+      name: "Disconnected",
+      enabled: false,
+      region: { x: 600, y: 400, w: 400, h: 60 },
+      condition: { kind: "textAppears", text: "Disconnected, Reconnect" },
+      pollMs: 1000,
+      action: { kind: "stopEverything" },
+      discord: true,
+      cooldownMs: 60000,
+    },
+  ],
 };
+
+/** A fake game HUD for the live viewer: "WAVE 12 / 1.25e+25" on a gradient. */
+function fakeFrame(maxWidth: number): ArrayBuffer {
+  const w = Math.min(maxWidth, 320);
+  const h = 80;
+  const c = new OffscreenCanvas(w, h);
+  const g = c.getContext("2d")!;
+  const grad = g.createLinearGradient(0, 0, w, h);
+  grad.addColorStop(0, "#3b1a4a");
+  grad.addColorStop(1, "#16234a");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = "rgba(255,255,255,.65)";
+  g.font = "bold 13px Segoe UI";
+  g.fillText("WAVE 12", 16, 26);
+  g.fillStyle = "#fff";
+  g.font = "bold 34px Segoe UI";
+  g.fillText("1.25e+25", 16, 64);
+  const px = g.getImageData(0, 0, w, h).data;
+  const out = new Uint8Array(8 + px.length);
+  new DataView(out.buffer).setUint32(0, w, true);
+  new DataView(out.buffer).setUint32(4, h, true);
+  out.set(px, 8);
+  return out.buffer;
+}
+
+let viewerChecks = 0;
 
 let macros: Macro[] = [
   {
@@ -60,6 +111,14 @@ let macros: Macro[] = [
       { type: "scroll", amount: -360, horizontal: false },
       { type: "text", text: "gg wp" },
       {
+        type: "waitFor",
+        region: { x: 706, y: 35, w: 320, h: 80 },
+        condition: { kind: "textAppears", text: "Ready" },
+        timeoutMs: 30000,
+        pollMs: 100,
+        onTimeout: "continue",
+      },
+      {
         type: "repeat",
         times: 5,
         steps: [
@@ -96,7 +155,7 @@ function clickerStatus() {
 
 /**
  * `?scene=` jumps straight to a state, for screenshots:
- * editor:<id>, playing:<id> (editor with live playback), recording.
+ * editor:<id>, playing:<id> (editor with live playback), recording, watch.
  */
 async function applyScene() {
   const scene = new URLSearchParams(location.search).get("scene");
@@ -109,6 +168,9 @@ async function applyScene() {
     playing = id;
     await emit("macro-state", id);
     simulatePlayback(id);
+  }
+  if (kind === "watch") {
+    (document.querySelector('[data-value="watch"]') as HTMLButtonElement | null)?.click();
   }
   if (kind === "recording") {
     recording = true;
@@ -176,6 +238,30 @@ export function install() {
           return;
         case "activity_status":
           return { playing, recording };
+        case "pick_region":
+          await new Promise((r) => setTimeout(r, 600));
+          return { x: 706, y: 35, w: 320, h: 80 };
+        case "viewer_check":
+          viewerChecks++;
+          return {
+            matched: a.condition.kind === "number" ? 1.25e25 >= a.condition.value : a.condition.kind !== "textGone",
+            text: "WAVE 12\n1.25e+25",
+            number: 1.25e25,
+            numbers: [12, 1.25e25],
+            ocrRan: viewerChecks === 1,
+            captureMs: 0.6,
+            ocrMs: viewerChecks === 1 ? 19.7 : 0,
+            width: 320,
+            height: 80,
+          };
+        case "viewer_frame":
+          return fakeFrame(a.maxWidth ?? 560);
+        case "viewer_stop":
+          viewerChecks = 0;
+          return;
+        case "save_watches":
+          settings.watches = a.watches.map((w: any, i: number) => ({ ...w, id: w.id || `w${Date.now()}${i}` }));
+          return structuredClone(settings.watches);
         case "recording_start":
           recording = true;
           await emit("recording-state", true);
