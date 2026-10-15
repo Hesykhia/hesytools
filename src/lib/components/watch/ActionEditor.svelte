@@ -22,6 +22,8 @@
         return `run “${activity.macros.find((m) => m.id === a.macroId)?.name ?? "pick a macro"}”`;
       case "stopEverything":
         return "stop everything";
+      case "pauseMacros":
+        return "pause the macro until it's gone";
       case "click":
         return "click";
       case "pressKey":
@@ -92,6 +94,9 @@
       onclick={() => pick(action.kind === "pressKey" ? action : { kind: "pressKey", key: "E", times: keepTimes() })}
     >
       <b>Press a key</b><small>Once or a few times</small>
+    </button>
+    <button class="item" class:on={action.kind === "pauseMacros"} onclick={() => pick({ kind: "pauseMacros" })}>
+      <b>Pause the macro until it's gone</b><small>Picks up where it left off once it stops matching</small>
     </button>
     <button class="item" class:on={action.kind === "stopEverything"} onclick={() => pick({ kind: "stopEverything" })}>
       <b>Stop everything</b><small>Like pressing the panic key</small>

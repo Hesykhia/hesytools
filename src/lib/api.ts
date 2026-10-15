@@ -103,6 +103,8 @@ export type WatchAction =
   | { kind: "stopEverything" }
   | { kind: "click"; button: MouseButton; times: number; at: { kind: "found" } | { kind: "point"; x: number; y: number } }
   | { kind: "pressKey"; key: string; times: number }
+  /** Pauses playing macros while it matches; they carry on once it's gone. */
+  | { kind: "pauseMacros" }
   /** Shuts down / restarts after a 1 minute countdown. */
   | { kind: "shutdown"; restart: boolean };
 

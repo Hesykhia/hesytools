@@ -60,6 +60,8 @@ pub enum WatchAction {
         key: Key,
         times: u32,
     },
+    /// Pause playing macros while it matches; they carry on once it's gone.
+    PauseMacros,
     /// Shut down (or restart) after a one-minute countdown, so the panic
     /// key or Cancel can still stop it.
     Shutdown {
@@ -204,6 +206,7 @@ mod tests {
             (r#"{"kind":"pressKey","key":"E","times":2}"#,
              WatchAction::PressKey { key: Key::from_name("E").unwrap(), times: 2 }),
             (r#"{"kind":"shutdown","restart":true}"#, WatchAction::Shutdown { restart: true }),
+            (r#"{"kind":"pauseMacros"}"#, WatchAction::PauseMacros),
         ];
         for (json, want) in cases {
             assert_eq!(serde_json::from_str::<WatchAction>(json).unwrap(), want, "{json}");

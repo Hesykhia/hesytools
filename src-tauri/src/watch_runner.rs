@@ -22,7 +22,14 @@ pub struct WatchStatus {
     pub error: Option<String>,
 }
 
-pub type FireFn = Arc<dyn Fn(&WatchRule, &Check) + Send + Sync>;
+/// `Start` when the rule triggers; `End` once that match goes away again (or
+/// the watch stops), for actions that last while it's showing.
+pub enum Edge<'a> {
+    Start(&'a Check),
+    End,
+}
+
+pub type FireFn = Arc<dyn Fn(&WatchRule, Edge) + Send + Sync>;
 
 #[derive(Default)]
 pub struct WatchRunner {
@@ -85,6 +92,13 @@ fn run(rule: WatchRule, waiter: &Waiter, app: &AppHandle, fire: &FireFn) {
     let mut was_matched = None::<bool>;
     let mut last_text = None::<String>;
     let mut last_fire: Option<Instant> = None;
+    // Triggered and not yet ended.
+    let mut active = false;
+    let end = |active: &mut bool| {
+        if std::mem::take(active) {
+            fire(&rule, Edge::End);
+        }
+    };
     loop {
         match watcher.check() {
             Ok(c) => {
@@ -96,7 +110,11 @@ fn run(rule: WatchRule, waiter: &Waiter, app: &AppHandle, fire: &FireFn) {
                 let rising = c.matched && was_matched == Some(false);
                 if rising && last_fire.is_none_or(|t| t.elapsed() >= cooldown) {
                     last_fire = Some(Instant::now());
-                    fire(&rule, &c);
+                    active = true;
+                    fire(&rule, Edge::Start(&c));
+                }
+                if !c.matched {
+                    end(&mut active);
                 }
                 // The first check only establishes the starting state, so a
                 // rule enabled while its text is already showing doesn't fire.
@@ -105,6 +123,7 @@ fn run(rule: WatchRule, waiter: &Waiter, app: &AppHandle, fire: &FireFn) {
             Err(e) => status(false, None, Some(e)),
         }
         if !waiter.wait(poll) {
+            end(&mut active);
             return;
         }
     }

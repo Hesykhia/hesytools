@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton as TrayButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
-use watch_runner::WatchRunner;
+use watch_runner::{Edge, WatchRunner};
 
 const HK_CLICKER: &str = "clicker";
 const HK_PANIC: &str = "panic";
@@ -57,6 +57,8 @@ struct App {
     pending_update: Mutex<Option<tauri_plugin_updater::Update>>,
     /// The shutdown/restart timer hesytools set, if any.
     shutdown: Mutex<Option<ShutdownTimer>>,
+    /// Screen watches currently holding macros paused.
+    macro_pausers: Mutex<std::collections::HashSet<String>>,
 }
 
 #[derive(Clone, Copy, Serialize)]
@@ -426,8 +428,17 @@ fn sync_watches(app: &AppHandle, a: &Arc<App>) {
     a.watches.sync(
         app,
         &rules,
-        Arc::new(move |rule: &WatchRule, check: &Check| {
+        Arc::new(move |rule: &WatchRule, edge: Edge| {
             let Some(a) = a2.upgrade() else { return };
+            let check = match edge {
+                Edge::Start(c) => c,
+                Edge::End => {
+                    if rule.action == WatchAction::PauseMacros {
+                        resume_macros(&handle, &a, &rule.id);
+                    }
+                    return;
+                }
+            };
             let _ = handle.emit("watch-hit", rule.id.clone());
             let result = match &rule.action {
                 WatchAction::Notify => {
@@ -460,6 +471,18 @@ fn sync_watches(app: &AppHandle, a: &Arc<App>) {
                             input::send(&[input::key_event(key, false)]);
                         }
                     });
+                    Ok(())
+                }
+                WatchAction::PauseMacros => {
+                    let first = {
+                        let mut holders = a.macro_pausers.lock();
+                        holders.insert(rule.id.clone());
+                        holders.len() == 1
+                    };
+                    macros::set_paused(true);
+                    if first && a.playing.lock().is_some() {
+                        let _ = handle.emit("toast", format!("Macro paused while “{}” is showing", rule.name));
+                    }
                     Ok(())
                 }
                 WatchAction::Shutdown { restart } => start_shutdown(&handle, &a, 60, *restart).map(|_| {
@@ -504,11 +527,26 @@ fn describe_watch(rule: &WatchRule) -> String {
         WatchAction::RunMacro { .. } => " Running its macro.".into(),
         WatchAction::StopEverything => " Stopped everything.".into(),
         WatchAction::Click { .. } => " Clicked it.".into(),
+        WatchAction::PauseMacros => " Paused macros until it's gone.".into(),
         WatchAction::PressKey { key, .. } => format!(" Pressed {key}."),
         WatchAction::Shutdown { restart: true } => " Restarting the PC in 1 minute.".into(),
         WatchAction::Shutdown { restart: false } => " Shutting down the PC in 1 minute.".into(),
     };
     format!("{what}.{action}")
+}
+
+/// A pausing watch's match went away (or the watch stopped). Macros carry on
+/// once no watch is holding them.
+fn resume_macros(app: &AppHandle, a: &App, rule_id: &str) {
+    let mut holders = a.macro_pausers.lock();
+    if !holders.remove(rule_id) || !holders.is_empty() {
+        return;
+    }
+    drop(holders);
+    macros::set_paused(false);
+    if a.playing.lock().is_some() {
+        let _ = app.emit("toast", "Macro resumed");
+    }
 }
 
 /// Screen point of what a watch found: the image's centre or the matching
@@ -1201,6 +1239,7 @@ pub fn run() {
                 watches: WatchRunner::default(),
                 pending_update: Mutex::new(None),
                 shutdown: Mutex::new(None),
+                macro_pausers: Mutex::new(Default::default()),
             });
             apply_hotkeys(&a);
             sync_watches(app.handle(), &a);

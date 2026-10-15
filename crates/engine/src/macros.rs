@@ -387,6 +387,24 @@ impl Recorder {
 
 // ── Playback ────────────────────────────────────────────────────────────────
 
+/// While set, every playing macro holds still (a screen watch paused it).
+static PAUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Pause or resume every playing macro. Waits freeze where they are and keys
+/// or buttons a macro is holding are let go, then pressed again on resume.
+pub fn set_paused(on: bool) {
+    PAUSED.store(on, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn is_paused() -> bool {
+    PAUSED.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// How often a paused macro checks whether it may carry on.
+const PAUSE_POLL: Duration = Duration::from_millis(20);
+/// Waits are sliced this fine so a pause lands quickly even mid-wait.
+const WAIT_SLICE: Duration = Duration::from_millis(25);
+
 /// Plays a macro on the calling thread until it finishes or `waiter` is
 /// cancelled. `on_step(index, iteration)` fires as each top-level step starts.
 /// Anything still held down is released at the end, no matter what.
@@ -446,8 +464,53 @@ impl Player<'_> {
         Duration::from_secs_f64((ms / self.speed).max(0.0) / 1000.0)
     }
 
-    fn wait(&self, d: Duration) -> bool {
-        d.is_zero() && !self.waiter.is_cancelled() || self.waiter.wait(d)
+    fn wait(&mut self, d: Duration) -> bool {
+        if d.is_zero() {
+            return !self.waiter.is_cancelled();
+        }
+        // Count only time spent unpaused, so a 10 s wait is still 10 s of
+        // waiting once it resumes.
+        let mut left = d;
+        loop {
+            if !self.hold_while_paused() {
+                return false;
+            }
+            let slice = left.min(WAIT_SLICE);
+            if !self.waiter.wait(slice) {
+                return false;
+            }
+            left -= slice;
+            if left.is_zero() {
+                return true;
+            }
+        }
+    }
+
+    /// Block while macros are paused. Returns false if cancelled meanwhile.
+    fn hold_while_paused(&mut self) -> bool {
+        if !is_paused() {
+            return true;
+        }
+        let keys: Vec<_> = self.held_keys.iter().copied().collect();
+        let buttons: Vec<_> = self.held_buttons.iter().copied().collect();
+        for k in &keys {
+            self.send(&[input::key_event(*k, false)]);
+        }
+        for b in &buttons {
+            self.send(&[input::button_event(*b, false)]);
+        }
+        while is_paused() {
+            if !self.waiter.wait(PAUSE_POLL) {
+                return false;
+            }
+        }
+        for k in &keys {
+            self.send(&[input::key_event(*k, true)]);
+        }
+        for b in &buttons {
+            self.send(&[input::button_event(*b, true)]);
+        }
+        true
     }
 
     fn send(&mut self, events: &[windows::Win32::UI::Input::KeyboardAndMouse::INPUT]) {
@@ -458,14 +521,16 @@ impl Player<'_> {
 
     /// Returns false when cancelled.
     fn run(&mut self, step: &Step) -> bool {
-        if self.waiter.is_cancelled() {
+        if self.waiter.is_cancelled() || !self.hold_while_paused() {
             return false;
         }
         match step {
             Step::Key { key, action, hold_ms } => match action {
                 PressAction::Tap => {
                     self.send(&[input::key_event(*key, true)]);
-                    let ok = self.wait(self.scaled(*hold_ms));
+                    // A tap's short hold isn't pausable, so the key can't get
+                    // stuck down for the length of a pause.
+                    let ok = self.waiter.wait(self.scaled(*hold_ms));
                     self.send(&[input::key_event(*key, false)]);
                     ok
                 }
@@ -487,7 +552,7 @@ impl Player<'_> {
                 match action {
                     PressAction::Tap => {
                         self.send(&[input::button_event(*button, true)]);
-                        let ok = self.wait(self.scaled(*hold_ms));
+                        let ok = self.waiter.wait(self.scaled(*hold_ms));
                         self.send(&[input::button_event(*button, false)]);
                         ok
                     }
@@ -508,8 +573,15 @@ impl Player<'_> {
                 true
             }
             Step::Path { points } => {
-                let start = Instant::now();
+                let mut start = Instant::now();
                 for pt in points {
+                    if is_paused() {
+                        let paused_at = Instant::now();
+                        if !self.hold_while_paused() {
+                            return false;
+                        }
+                        start += paused_at.elapsed();
+                    }
                     if !self.waiter.wait_until(start + self.scaled(pt.t)) {
                         return false;
                     }
@@ -555,7 +627,7 @@ impl Player<'_> {
                         }
                         return true;
                     }
-                    if !self.waiter.wait(poll) {
+                    if !self.wait(poll) {
                         return false;
                     }
                 }
@@ -720,5 +792,23 @@ mod tests {
         let r = play(&m, &w, |_, _| {});
         assert!(!r.finished);
         assert!(t.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn pausing_freezes_a_wait_until_resumed() {
+        let m = Macro { steps: vec![Step::Wait { ms: 200.0 }], repeat: 1, ..Default::default() };
+        let w = Waiter::new().unwrap();
+        std::thread::spawn(|| {
+            std::thread::sleep(Duration::from_millis(50));
+            set_paused(true);
+            std::thread::sleep(Duration::from_millis(300));
+            set_paused(false);
+        });
+        let t = Instant::now();
+        let r = play(&m, &w, |_, _| {});
+        assert!(r.finished);
+        // 200 ms of waiting plus the 300 ms pause.
+        let took = t.elapsed();
+        assert!(took >= Duration::from_millis(480) && took < Duration::from_millis(650), "took {took:?}");
     }
 }
