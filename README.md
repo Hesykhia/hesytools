@@ -21,6 +21,8 @@
 
 ## 💭 Why I made this
 
+This project has been in development for a little over 6 months, I originally made it to Macro / Autoclick in roblox but it has been expanded to be used in all types of games or general tasks.
+
 I couldn't find a single macro program that did everything I needed without being a mess to use or coming from some sketchy website.
 
 TinyTask tracks mouse movement well but you can't touch the recording after the fact. Logitech's macro software lets you edit delays and keypresses but only works with their hardware. Nothing I found could also watch the screen for changes during a macro. For clicking, there'd be one app that only did keyboard, another that only did mouse, and none that could do both at the same time on a custom interval with a proper hotkey toggle.
