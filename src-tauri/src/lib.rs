@@ -2,19 +2,18 @@ mod macro_store;
 mod settings;
 mod watch_runner;
 
+use engine::capture::Region;
 use engine::clicker::{Clicker, ClickerConfig, ClickerStatus, ExitReason};
 use engine::hooks::InputKind;
 use engine::hotkey::{Hotkey, HotkeyManager, Trigger};
 use engine::macros::{self, Macro, RecordOptions, Recorder, Step};
 use engine::timer::Waiter;
-use engine::capture::Region;
 use engine::watch::{Check, Condition, Watcher};
 use engine::{elevation, hooks, input, picker, webhook};
 use macro_store::MacroStore;
 use parking_lot::Mutex;
 use serde::Serialize;
 use settings::{HotkeyMode, Settings, Store, WatchAction, WatchRule, WebhookSettings};
-use watch_runner::WatchRunner;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::thread::JoinHandle;
@@ -22,6 +21,7 @@ use std::time::{Duration, Instant};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton as TrayButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
+use watch_runner::WatchRunner;
 
 const HK_CLICKER: &str = "clicker";
 const HK_PANIC: &str = "panic";
@@ -52,6 +52,8 @@ struct App {
     /// was built for).
     viewers: Mutex<std::collections::HashMap<String, (String, Watcher)>>,
     watches: WatchRunner,
+    /// An update found by `check_update`, waiting for "Update now".
+    pending_update: Mutex<Option<tauri_plugin_updater::Update>>,
 }
 
 type AppState<'a> = State<'a, Arc<App>>;
@@ -65,7 +67,11 @@ impl App {
     }
 
     fn playing_id(&self) -> Option<String> {
-        self.playing.lock().as_ref().filter(|p| !p.thread.is_finished()).map(|p| p.id.clone())
+        self.playing
+            .lock()
+            .as_ref()
+            .filter(|p| !p.thread.is_finished())
+            .map(|p| p.id.clone())
     }
 }
 
@@ -80,7 +86,12 @@ fn start_clicker(app: &AppHandle, a: &Arc<App>) -> Result<(), String> {
             if reason == ExitReason::Finished {
                 let clicks = a2.clicker.status().clicks;
                 if a2.settings.lock().webhook.notify_clicker_finished {
-                    notify(&handle, &a2, "Autoclicker finished", &format!("Done after {clicks} clicks."));
+                    notify(
+                        &handle,
+                        &a2,
+                        "Autoclicker finished",
+                        &format!("Done after {clicks} clicks."),
+                    );
                 }
             }
         })
@@ -101,7 +112,13 @@ struct MacroStep {
 
 fn play_macro_by_id(app: &AppHandle, a: &Arc<App>, id: &str) -> Result<(), String> {
     stop_macro_playback(a);
-    let m = a.macros.lock().iter().find(|m| m.id == id).cloned().ok_or("Macro not found")?;
+    let m = a
+        .macros
+        .lock()
+        .iter()
+        .find(|m| m.id == id)
+        .cloned()
+        .ok_or("Macro not found")?;
     let waiter = Arc::new(Waiter::new().map_err(|e| e.to_string())?);
     let (w, handle, a2, mid) = (waiter.clone(), app.clone(), a.clone(), m.id.clone());
     let thread = std::thread::Builder::new()
@@ -131,7 +148,11 @@ fn play_macro_by_id(app: &AppHandle, a: &Arc<App>, id: &str) -> Result<(), Strin
             }
         })
         .map_err(|e| e.to_string())?;
-    *a.playing.lock() = Some(Playing { id: mid.clone(), waiter, thread });
+    *a.playing.lock() = Some(Playing {
+        id: mid.clone(),
+        waiter,
+        thread,
+    });
     let _ = app.emit("macro-state", Some(mid));
     Ok(())
 }
@@ -162,24 +183,24 @@ fn start_recording(app: &AppHandle, a: &Arc<App>) -> Result<(), String> {
     *slot = Some(Recorder::start(
         opts,
         move |ev| {
-        // The record hotkey itself is never part of the macro.
-        if let Some(hk) = record_hk {
-            let is_hotkey = match (hk.trigger, ev.kind) {
-                (Trigger::Key(k), InputKind::Key { key, .. }) => k == key,
-                (Trigger::Mouse(b), InputKind::Button { button, .. }) => b == button,
-                _ => false,
-            };
-            if is_hotkey {
-                return false;
+            // The record hotkey itself is never part of the macro.
+            if let Some(hk) = record_hk {
+                let is_hotkey = match (hk.trigger, ev.kind) {
+                    (Trigger::Key(k), InputKind::Key { key, .. }) => k == key,
+                    (Trigger::Mouse(b), InputKind::Button { button, .. }) => b == button,
+                    _ => false,
+                };
+                if is_hotkey {
+                    return false;
+                }
             }
-        }
-        // Nothing done inside hesytools' own window gets recorded. (The
-        // outline is click-through, so clicks over it reach the app below.)
-        let target = match ev.kind {
-            InputKind::Key { .. } => input::foreground_window(),
-            _ => input::root_window_at(ev.x, ev.y),
-        };
-        target != own
+            // Nothing done inside hesytools' own window gets recorded. (The
+            // outline is click-through, so clicks over it reach the app below.)
+            let target = match ev.kind {
+                InputKind::Key { .. } => input::foreground_window(),
+                _ => input::root_window_at(ev.x, ev.y),
+            };
+            target != own
         },
         on_progress,
     ));
@@ -192,12 +213,19 @@ fn start_recording(app: &AppHandle, a: &Arc<App>) -> Result<(), String> {
 }
 
 fn show_outline(a: &App) {
-    let hint = a.settings.lock().record_hotkey.map(|h| format!("  \u{b7}  press {h} to stop")).unwrap_or_default();
+    let hint = a
+        .settings
+        .lock()
+        .record_hotkey
+        .map(|h| format!("  \u{b7}  press {h} to stop"))
+        .unwrap_or_default();
     *a.outline.lock() = Some(engine::outline::ScreenOutline::show(&format!("REC{hint}")));
 }
 
 fn stop_recording(app: &AppHandle, a: &App) {
-    let Some(rec) = a.recorder.lock().take() else { return };
+    let Some(rec) = a.recorder.lock().take() else {
+        return;
+    };
     let steps: Vec<Step> = rec.stop();
     *a.outline.lock() = None;
     let _ = app.emit("recording-state", false);
@@ -238,7 +266,9 @@ fn notification(wh: &WebhookSettings, title: &str, description: &str) -> webhook
 }
 
 fn on_hotkey(app: &AppHandle, id: &str, pressed: bool) {
-    let Some(a) = app.try_state::<Arc<App>>() else { return };
+    let Some(a) = app.try_state::<Arc<App>>() else {
+        return;
+    };
     let a = a.inner().clone();
     let result = match id {
         HK_PANIC if pressed => {
@@ -298,7 +328,8 @@ fn apply_hotkeys(a: &App) {
     a.hotkeys.clear_prefix(HK_MACRO_PREFIX);
     for m in a.macros.lock().iter() {
         if let Some(hk) = m.hotkey {
-            a.hotkeys.bind(&format!("{HK_MACRO_PREFIX}{}", m.id), Some(hk));
+            a.hotkeys
+                .bind(&format!("{HK_MACRO_PREFIX}{}", m.id), Some(hk));
         }
     }
 }
@@ -315,7 +346,13 @@ fn hotkey_owner(a: &App, hk: Hotkey, except: &str) -> Option<String> {
         .macros
         .lock()
         .iter()
-        .map(|m| (format!("{HK_MACRO_PREFIX}{}", m.id), m.hotkey, format!("macro “{}”", m.name)))
+        .map(|m| {
+            (
+                format!("{HK_MACRO_PREFIX}{}", m.id),
+                m.hotkey,
+                format!("macro “{}”", m.name),
+            )
+        })
         .collect();
     globals
         .into_iter()
@@ -331,11 +368,17 @@ fn take_hotkey(app: &AppHandle, a: &App, hk: Hotkey, new_owner: &str) -> Result<
     if hk.trigger == Trigger::Key(engine::keys::Key::ESCAPE) {
         return Err("Esc is reserved: it cancels picking and capturing".into());
     }
-    let Some(owner) = hotkey_owner(a, hk, new_owner) else { return Ok(()) };
+    let Some(owner) = hotkey_owner(a, hk, new_owner) else {
+        return Ok(());
+    };
     {
         let mut guard = a.settings.lock();
         let s = &mut *guard;
-        for slot in [&mut s.clicker_hotkey, &mut s.panic_hotkey, &mut s.record_hotkey] {
+        for slot in [
+            &mut s.clicker_hotkey,
+            &mut s.panic_hotkey,
+            &mut s.record_hotkey,
+        ] {
             if *slot == Some(hk) {
                 *slot = None;
             }
@@ -387,7 +430,12 @@ fn sync_watches(app: &AppHandle, a: &Arc<App>) {
                 let _ = handle.emit("toast", format!("Screen watch “{}”: {e}", rule.name));
             }
             if rule.discord {
-                notify(&handle, &a, &format!("Screen watch “{}” triggered", rule.name), &describe_watch(rule));
+                notify(
+                    &handle,
+                    &a,
+                    &format!("Screen watch “{}” triggered", rule.name),
+                    &describe_watch(rule),
+                );
             }
         }),
     );
@@ -454,7 +502,12 @@ fn set_record_options(a: AppState, options: RecordOptions) -> Result<(), String>
 
 /// Set one of the global hotkeys: "clicker", "panic" or "record".
 #[tauri::command]
-fn set_hotkey(app: AppHandle, a: AppState, id: String, hotkey: Option<String>) -> Result<Settings, String> {
+fn set_hotkey(
+    app: AppHandle,
+    a: AppState,
+    id: String,
+    hotkey: Option<String>,
+) -> Result<Settings, String> {
     let hk: Option<Hotkey> = hotkey.as_deref().map(str::parse).transpose()?;
     if let Some(h) = hk {
         take_hotkey(&app, &a, h, &id)?;
@@ -486,7 +539,9 @@ fn cancel_capture(a: AppState) {
 
 #[tauri::command]
 async fn pick_point() -> Result<Option<(i32, i32)>, String> {
-    tauri::async_runtime::spawn_blocking(hooks::pick_point).await.map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(hooks::pick_point)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -600,7 +655,10 @@ struct ActivityStatus {
 
 #[tauri::command]
 fn activity_status(a: AppState) -> ActivityStatus {
-    ActivityStatus { playing: a.playing_id(), recording: a.recorder.lock().is_some() }
+    ActivityStatus {
+        playing: a.playing_id(),
+        recording: a.recorder.lock().is_some(),
+    }
 }
 
 #[tauri::command]
@@ -625,7 +683,12 @@ fn screen_layout(app: AppHandle) -> Vec<Region> {
     app.available_monitors()
         .unwrap_or_default()
         .iter()
-        .map(|m| Region { x: m.position().x, y: m.position().y, w: m.size().width, h: m.size().height })
+        .map(|m| Region {
+            x: m.position().x,
+            y: m.position().y,
+            w: m.size().width,
+            h: m.size().height,
+        })
         .collect()
 }
 
@@ -640,7 +703,9 @@ async fn pick_region(app: AppHandle) -> Result<Option<Region>, String> {
     }
     // Let the minimize animation finish so our own window isn't in the way.
     tokio_sleep(250).await;
-    let region = tauri::async_runtime::spawn_blocking(picker::pick_region).await.map_err(|e| e.to_string())?;
+    let region = tauri::async_runtime::spawn_blocking(picker::pick_region)
+        .await
+        .map_err(|e| e.to_string())?;
     if let Some(w) = &win {
         let _ = w.unminimize();
         let _ = w.set_focus();
@@ -649,13 +714,17 @@ async fn pick_region(app: AppHandle) -> Result<Option<Region>, String> {
 }
 
 async fn tokio_sleep(ms: u64) {
-    let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(Duration::from_millis(ms))).await;
+    let _ =
+        tauri::async_runtime::spawn_blocking(move || std::thread::sleep(Duration::from_millis(ms)))
+            .await;
 }
 
 /// Drag a box around a button/icon; returns it as an image to look for.
 #[tauri::command]
 async fn capture_template(app: AppHandle) -> Result<Option<engine::imagematch::Template>, String> {
-    let Some(region) = pick_region(app).await? else { return Ok(None) };
+    let Some(region) = pick_region(app).await? else {
+        return Ok(None);
+    };
     if region.w > 400 || region.h > 400 {
         return Err("That's quite big for an image to find; select just the button or icon".into());
     }
@@ -675,7 +744,12 @@ struct ViewerCheck {
 /// One live-viewer tick: capture + evaluate. OCR only re-runs when the
 /// region's pixels changed since the previous tick.
 #[tauri::command]
-async fn viewer_check(a: AppState<'_>, id: String, region: Region, condition: Condition) -> Result<ViewerCheck, String> {
+async fn viewer_check(
+    a: AppState<'_>,
+    id: String,
+    region: Region,
+    condition: Condition,
+) -> Result<ViewerCheck, String> {
     let key = serde_json::to_string(&(region, &condition)).unwrap_or_default();
     let a = a.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -686,7 +760,11 @@ async fn viewer_check(a: AppState<'_>, id: String, region: Region, condition: Co
         let (_, w) = viewers.get_mut(&id).expect("just set");
         let check = w.check()?;
         let (width, height) = w.frame.as_ref().map_or((0, 0), |f| (f.w, f.h));
-        Ok(ViewerCheck { check, width, height })
+        Ok(ViewerCheck {
+            check,
+            width,
+            height,
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -716,7 +794,11 @@ fn viewer_stop(a: AppState, id: String) {
 }
 
 #[tauri::command]
-fn save_watches(app: AppHandle, a: AppState, mut watches: Vec<WatchRule>) -> Result<Vec<WatchRule>, String> {
+fn save_watches(
+    app: AppHandle,
+    a: AppState,
+    mut watches: Vec<WatchRule>,
+) -> Result<Vec<WatchRule>, String> {
     for w in &mut watches {
         if w.id.is_empty() {
             w.id = macro_store::new_id().replacen('m', "w", 1);
@@ -739,7 +821,11 @@ fn set_webhook(a: AppState, webhook: WebhookSettings) -> Result<(), String> {
 
 #[tauri::command]
 async fn test_webhook(webhook: WebhookSettings) -> Result<(), String> {
-    let n = notification(&webhook, "hesytools is connected", "Notifications will show up here.");
+    let n = notification(
+        &webhook,
+        "hesytools is connected",
+        "Notifications will show up here.",
+    );
     tauri::async_runtime::spawn_blocking(move || webhook::send(&webhook.url, &n))
         .await
         .map_err(|e| e.to_string())?
@@ -788,7 +874,15 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show hesytools", true, None::<&str>)?;
     let stop = MenuItem::with_id(app, "stop", "Stop everything", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &stop, &PredefinedMenuItem::separator(app)?, &quit_item])?;
+    let menu = Menu::with_items(
+        app,
+        &[
+            &show,
+            &stop,
+            &PredefinedMenuItem::separator(app)?,
+            &quit_item,
+        ],
+    )?;
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("hesytools")
         .menu(&menu)
@@ -804,7 +898,12 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
             _ => {}
         })
         .on_tray_icon_event(|tray, e| {
-            if let TrayIconEvent::Click { button: TrayButton::Left, button_state: MouseButtonState::Up, .. } = e {
+            if let TrayIconEvent::Click {
+                button: TrayButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = e
+            {
                 show_main(tray.app_handle());
             }
         });
@@ -835,12 +934,90 @@ fn set_startup_macro(a: AppState, id: Option<String>) -> Result<(), String> {
 #[tauri::command]
 async fn pick_color() -> Result<Option<[u8; 3]>, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let Some((x, y)) = hooks::pick_point() else { return Ok(None) };
+        let Some((x, y)) = hooks::pick_point() else {
+            return Ok(None);
+        };
         let f = engine::capture::capture(Region { x, y, w: 1, h: 1 })?;
         Ok(f.pixel(0, 0))
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+// ── Updates ─────────────────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateInfo {
+    version: String,
+    current_version: String,
+    notes: Option<String>,
+    date: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateProgress {
+    downloaded: u64,
+    total: Option<u64>,
+    done: bool,
+}
+
+/// Ask GitHub Releases whether there's a newer version. Updates are only
+/// accepted if they're signed with hesy's key (pubkey in tauri.conf.json).
+#[tauri::command]
+async fn check_update(app: AppHandle, a: AppState<'_>) -> Result<Option<UpdateInfo>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let mut builder = app.updater_builder();
+    // For testing against a local server; signatures are still checked.
+    if let Ok(url) = std::env::var("HESYTOOLS_UPDATE_URL") {
+        let url = url.parse().map_err(|e| format!("Bad HESYTOOLS_UPDATE_URL: {e}"))?;
+        builder = builder.endpoints(vec![url]).map_err(|e| e.to_string())?;
+    }
+    let update = builder
+        .build()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| format!("Couldn't check for updates: {e}"))?;
+    let info = update.as_ref().map(|u| UpdateInfo {
+        version: u.version.clone(),
+        current_version: u.current_version.clone(),
+        notes: u.body.clone(),
+        date: u.date.map(|d| d.date().to_string()),
+    });
+    *a.pending_update.lock() = update;
+    Ok(info)
+}
+
+/// Download and run the new installer. It closes hesytools, upgrades it in
+/// place and reopens it. Macros and settings live in %APPDATA% and aren't
+/// touched.
+#[tauri::command]
+async fn install_update(app: AppHandle, a: AppState<'_>) -> Result<(), String> {
+    let update = a.pending_update.lock().take().ok_or("No update is ready to install")?;
+    stop_everything(&app, &a);
+    a.watches.stop_all();
+    let mut downloaded = 0u64;
+    let progress = app.clone();
+    let finished = app.clone();
+    update
+        .download_and_install(
+            move |chunk, total| {
+                downloaded += chunk as u64;
+                let _ = progress.emit("update-progress", UpdateProgress { downloaded, total, done: false });
+            },
+            move || {
+                let _ = finished.emit("update-progress", UpdateProgress { downloaded: 0, total: None, done: true });
+            },
+        )
+        .await
+        .map_err(|e| format!("Update failed: {e}"))
+}
+
+#[tauri::command]
+fn set_auto_check_updates(a: AppState, on: bool) -> Result<(), String> {
+    a.update(|s| s.auto_check_updates = on).map(|_| ())
 }
 
 #[tauri::command]
@@ -857,6 +1034,7 @@ fn quit_app(app: AppHandle) {
 pub fn run() {
     elevation::wait_for_previous_instance();
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // A second launch just brings the existing window forward; two
             // instances would both react to every hotkey.
@@ -888,6 +1066,7 @@ pub fn run() {
                 outline: Mutex::new(None),
                 viewers: Mutex::new(Default::default()),
                 watches: WatchRunner::default(),
+                pending_update: Mutex::new(None),
             });
             apply_hotkeys(&a);
             sync_watches(app.handle(), &a);
@@ -898,7 +1077,12 @@ pub fn run() {
                     let _ = w.hide();
                 }
             }
-            let startup_macro = app.state::<Arc<App>>().settings.lock().startup_macro.clone();
+            let startup_macro = app
+                .state::<Arc<App>>()
+                .settings
+                .lock()
+                .startup_macro
+                .clone();
             if let Some(id) = startup_macro {
                 // A short grace period so a startup macro never fires the
                 // instant you sign in.
@@ -922,7 +1106,9 @@ pub fn run() {
                     return;
                 }
                 let app = window.app_handle();
-                let to_tray = app.try_state::<Arc<App>>().is_some_and(|a| a.settings.lock().close_to_tray);
+                let to_tray = app
+                    .try_state::<Arc<App>>()
+                    .is_some_and(|a| a.settings.lock().close_to_tray);
                 if to_tray {
                     api.prevent_close();
                     let _ = window.hide();
@@ -954,6 +1140,9 @@ pub fn run() {
             recording_stop,
             set_recording_overlay,
             set_close_to_tray,
+            check_update,
+            install_update,
+            set_auto_check_updates,
             startup_enabled,
             set_startup_enabled,
             set_startup_macro,

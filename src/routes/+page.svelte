@@ -22,6 +22,8 @@
   import { activity, initActivity } from "$lib/activity.svelte";
   import WatchPage from "$lib/components/watch/WatchPage.svelte";
   import SettingsPage from "$lib/components/SettingsPage.svelte";
+  import UpdateCard from "$lib/components/UpdateCard.svelte";
+  import { checkForUpdates } from "$lib/update.svelte";
 
   type Page = "macros" | "watch" | "settings";
   const ORDER: Page[] = ["macros", "watch", "settings"];
@@ -58,7 +60,14 @@
   }
 
   onMount(() => {
-    api.getSettings().then((s) => (settings = s)).catch((e) => (loadError = errorText(e)));
+    api
+      .getSettings()
+      .then((s) => {
+        settings = s;
+        // A quiet check a few seconds after launch, so startup stays snappy.
+        if (s.autoCheckUpdates) setTimeout(() => checkForUpdates(), 4000);
+      })
+      .catch((e) => (loadError = errorText(e)));
     api.systemInfo().then((i) => (info = i));
     api.clickerStatus().then((s) => (running = s.running));
     // Keep the glow in sync even while the clicker panel isn't on screen.
@@ -140,6 +149,8 @@
   </main>
 
 </div>
+
+<UpdateCard />
 
 <div class="toasts">
   {#each toasts as t (t.id)}

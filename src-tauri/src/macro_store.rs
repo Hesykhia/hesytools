@@ -10,7 +10,9 @@ pub struct MacroStore {
 
 impl MacroStore {
     pub fn new(config_dir: &Path) -> Self {
-        Self { dir: config_dir.join("macros") }
+        Self {
+            dir: config_dir.join("macros"),
+        }
     }
 
     fn path(&self, id: &str) -> PathBuf {
@@ -19,7 +21,9 @@ impl MacroStore {
 
     /// Newest first. Unreadable files are skipped, not deleted.
     pub fn load_all(&self) -> Vec<Macro> {
-        let Ok(entries) = std::fs::read_dir(&self.dir) else { return Vec::new() };
+        let Ok(entries) = std::fs::read_dir(&self.dir) else {
+            return Vec::new();
+        };
         let mut out: Vec<Macro> = entries
             .flatten()
             .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
@@ -55,7 +59,10 @@ pub fn new_id() -> String {
     use std::sync::atomic::{AtomicU32, Ordering};
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let ms = now_ms();
-    format!("m{ms:x}{:x}", COUNTER.fetch_add(1, Ordering::Relaxed) & 0xff)
+    format!(
+        "m{ms:x}{:x}",
+        COUNTER.fetch_add(1, Ordering::Relaxed) & 0xff
+    )
 }
 
 pub fn now_ms() -> u64 {

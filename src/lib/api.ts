@@ -175,6 +175,7 @@ export interface Settings {
   recordingOverlay: boolean;
   startupMacro: string | null;
   closeToTray: boolean;
+  autoCheckUpdates: boolean;
   webhook: WebhookSettings;
   watches: WatchRule[];
 }
@@ -188,6 +189,19 @@ export interface ClickerStatus {
 export interface SystemInfo {
   elevated: boolean;
   version: string;
+}
+
+export interface UpdateInfo {
+  version: string;
+  currentVersion: string;
+  notes: string | null;
+  date: string | null;
+}
+
+export interface UpdateProgress {
+  downloaded: number;
+  total: number | null;
+  done: boolean;
 }
 
 export type HotkeyId = "clicker" | "panic" | "record";
@@ -208,6 +222,9 @@ export const api = {
   setStartupMacro: (id: string | null) => invoke<void>("set_startup_macro", { id }),
   /** Eyedropper: next click on screen returns that pixel's colour. */
   pickColor: () => invoke<[number, number, number] | null>("pick_color"),
+  checkUpdate: () => invoke<UpdateInfo | null>("check_update"),
+  installUpdate: () => invoke<void>("install_update"),
+  setAutoCheckUpdates: (on: boolean) => invoke<void>("set_auto_check_updates", { on }),
   setCloseToTray: (on: boolean) => invoke<void>("set_close_to_tray", { on }),
   quitApp: () => invoke<void>("quit_app"),
   setRecordingOverlay: (on: boolean) => invoke<void>("set_recording_overlay", { on }),
@@ -307,4 +324,8 @@ export function hotkeyWarning(combo: string | null): string | null {
   if (key === "MiddleMouse") return "Middle-click won't work normally while this hotkey is set.";
   const typing = key.length === 1 || /^Num\d$/.test(key) || TYPING_NAMES.has(key);
   return typing ? `“${key}” won't type anywhere while hesytools is running. It'll only trigger this hotkey.` : null;
+}
+
+export function onUpdateProgress(cb: (p: UpdateProgress) => void): Promise<UnlistenFn> {
+  return listen<UpdateProgress>("update-progress", (e) => cb(e.payload));
 }

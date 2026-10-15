@@ -1,9 +1,9 @@
 //! Persistent user settings, stored as JSON in the app config directory.
 
+use engine::capture::Region;
 use engine::clicker::ClickerConfig;
 use engine::hotkey::Hotkey;
 use engine::keys::Key;
-use engine::capture::Region;
 use engine::macros::RecordOptions;
 use engine::watch::Condition;
 use serde::{Deserialize, Serialize};
@@ -46,7 +46,9 @@ pub enum WatchAction {
     /// Only alert (Discord, if set up) / show in the app.
     Notify,
     #[serde(rename_all = "camelCase")]
-    RunMacro { macro_id: String },
+    RunMacro {
+        macro_id: String,
+    },
     StopEverything,
 }
 
@@ -74,7 +76,10 @@ impl Default for WatchRule {
             name: "New watch".into(),
             enabled: false,
             region: Region::default(),
-            condition: Condition::TextAppears { text: String::new(), digits_after: None },
+            condition: Condition::TextAppears {
+                text: String::new(),
+                digits_after: None,
+            },
             poll_ms: 250.0,
             action: WatchAction::Notify,
             discord: false,
@@ -101,6 +106,8 @@ pub struct Settings {
     /// Closing the window hides it to the tray (hotkeys and watches keep
     /// working) instead of quitting.
     pub close_to_tray: bool,
+    /// Look for a new version on GitHub when the app starts.
+    pub auto_check_updates: bool,
     pub webhook: WebhookSettings,
     pub watches: Vec<WatchRule>,
 }
@@ -117,6 +124,7 @@ impl Default for Settings {
             recording_overlay: true,
             startup_macro: None,
             close_to_tray: true,
+            auto_check_updates: true,
             webhook: WebhookSettings::default(),
             watches: Vec::new(),
         }
@@ -129,7 +137,9 @@ pub struct Store {
 
 impl Store {
     pub fn new(dir: &Path) -> Self {
-        Self { path: dir.join("settings.json") }
+        Self {
+            path: dir.join("settings.json"),
+        }
     }
 
     /// Missing or unreadable files fall back to defaults; a corrupt file is

@@ -25,6 +25,7 @@ const settings: Settings = {
   recordingOverlay: true,
   startupMacro: null,
   closeToTray: true,
+  autoCheckUpdates: true,
   webhook: { url: "", mentionUserId: "", notifyClickerFinished: true, notifyMacroFinished: true },
   watches: [
     {
@@ -296,6 +297,25 @@ export function install() {
           return structuredClone(settings.watches);
         case "set_recording_overlay":
           settings.recordingOverlay = a.on;
+          return;
+        case "check_update":
+          return new URLSearchParams(location.search).get("scene") === "update"
+            ? {
+                version: "5.1.0",
+                currentVersion: "5.0.0",
+                notes: "- In-app updates\n- Autoclicker can click and press a key together\n- Hotkeys take over their key",
+                date: "2026-10-15",
+              }
+            : null;
+        case "install_update":
+          for (let i = 1; i <= 20; i++) {
+            await new Promise((r) => setTimeout(r, 120));
+            await emit("update-progress", { downloaded: i * 130_000, total: 2_600_000, done: false });
+          }
+          await emit("update-progress", { downloaded: 0, total: null, done: true });
+          return;
+        case "set_auto_check_updates":
+          settings.autoCheckUpdates = a.on;
           return;
         case "startup_enabled":
           return false;

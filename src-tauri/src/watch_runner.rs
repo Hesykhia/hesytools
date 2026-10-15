@@ -34,7 +34,10 @@ impl WatchRunner {
     pub fn sync(&self, app: &AppHandle, rules: &[WatchRule], fire: FireFn) {
         self.stop_all();
         let mut threads = self.threads.lock();
-        for rule in rules.iter().filter(|r| r.enabled && r.region.w > 0 && r.region.h > 0) {
+        for rule in rules
+            .iter()
+            .filter(|r| r.enabled && r.region.w > 0 && r.region.h > 0)
+        {
             let Ok(waiter) = Waiter::new() else { continue };
             let waiter = Arc::new(waiter);
             let (w, rule, app, fire) = (waiter.clone(), rule.clone(), app.clone(), fire.clone());
@@ -60,7 +63,15 @@ impl WatchRunner {
 
 fn run(rule: WatchRule, waiter: &Waiter, app: &AppHandle, fire: &FireFn) {
     let status = |matched, text, error| {
-        let _ = app.emit("watch-status", WatchStatus { id: rule.id.clone(), matched, text, error });
+        let _ = app.emit(
+            "watch-status",
+            WatchStatus {
+                id: rule.id.clone(),
+                matched,
+                text,
+                error,
+            },
+        );
     };
     let mut watcher = match Watcher::new(rule.region, rule.condition.clone()) {
         Ok(w) => w,

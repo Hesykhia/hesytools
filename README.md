@@ -70,6 +70,7 @@ Then run a macro, stop everything, or just get notified. The live view shows exa
 - **Start with Windows** quietly in the tray, and optionally run a macro on start
 - **Admin mode** for apps that run as administrator
 - Works across **multiple monitors**
+- **Updates itself** from GitHub when a new version is out (or later, your call)
 
 <br/>
 
@@ -78,6 +79,7 @@ Then run a macro, stop everything, or just get notified. The live view shows exa
 1. Head to [Releases](https://github.com/Hesykhia/hesytools/releases) and grab the latest `hesytools_x.x.x_x64-setup.exe`
 2. Run it. No admin needed, no Python, nothing else to set up
 3. Closing the window keeps it running in the tray so your hotkeys keep working. Quit from the tray icon
+4. When a new version is out, hesytools tells you and updates itself in a few seconds. Your macros and settings stay
 
 If something ignores your clicks or keys, that app is probably running as administrator. Turn on **Admin mode** in Settings.
 
@@ -102,9 +104,16 @@ You'll need Rust, Node 20+ and pnpm (plus the MSVC build tools on Windows).
 ```sh
 pnpm install
 pnpm tauri dev      # run it
-pnpm tauri build    # installer ends up in target/release/bundle/nsis
 cargo test -p engine
 ```
+
+Release builds are signed so the in-app updater can trust them. To build an unsigned installer for yourself:
+
+```sh
+pnpm tauri build --config "{\"bundle\":{\"createUpdaterArtifacts\":false}}"
+```
+
+Publishing an update is `scripts/release.ps1 -Version x.y.z -Notes "..."`. It builds, signs and uploads the release, and everyone gets the "hesytools got an update" prompt next time they open it.
 
 The app is Tauri (Rust) with a Svelte UI. Everything that touches Windows (input, hotkeys, timing, screen capture, OCR) lives in `crates/engine`, separate from the UI. Settings and macros are plain JSON in `%APPDATA%\com.hesy.hesytools\`.
 

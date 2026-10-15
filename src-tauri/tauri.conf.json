@@ -49,7 +49,20 @@
         "installMode": "currentUser",
         "displayLanguageSelector": false
       }
-    }
+    },
+    "createUpdaterArtifacts": true
   },
-  "mainBinaryName": "hesytools"
+  "mainBinaryName": "hesytools",
+  "plugins": {
+    "updater": {
+      "requireSignedVersion": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU2NTE1NUEyNjgxMkZCMTUKUldRVit4Sm9vbFZSNW1sYlpIVDBjV3RVRDFNNC94WU5NdVlJaW10cDJGcHZSK2M2TXB3dHdjd3EK",
+      "endpoints": [
+        "https://github.com/Hesykhia/hesytools/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
 }

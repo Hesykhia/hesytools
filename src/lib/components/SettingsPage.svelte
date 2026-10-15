@@ -8,6 +8,7 @@
   import HotkeyButton from "./HotkeyButton.svelte";
   import Tabs from "./ui/Tabs.svelte";
   import Toggle from "./ui/Toggle.svelte";
+  import { checkForUpdates, update } from "$lib/update.svelte";
 
   let { settings = $bindable(), info }: { settings: Settings; info: SystemInfo | null } = $props();
 
@@ -177,6 +178,37 @@
         <div class="row">
           <div class="text"><b>Quit hesytools</b><small>Fully exits: hotkeys and watches stop</small></div>
           <button class="btn" onclick={() => api.quitApp()}>Quit</button>
+        </div>
+      </section>
+
+      <section class="group glass">
+        <h3>Updates</h3>
+        <div class="row">
+          <div class="text">
+            <b>hesytools {info?.version ?? ""}</b>
+            <small>
+              {#if update.info && update.phase !== "idle"}Version {update.info.version} is available{:else}New versions come from GitHub Releases{/if}
+            </small>
+          </div>
+          {#if update.info && update.phase !== "idle"}
+            <button class="btn primary" onclick={() => (update.dismissed = false)}>Show update</button>
+          {:else}
+            <button class="btn" disabled={update.checking} onclick={() => checkForUpdates(true)}>
+              {update.checking ? "Checking…" : "Check for updates"}
+            </button>
+          {/if}
+        </div>
+        <div class="row">
+          <div class="text"><b>Check automatically</b><small>Looks for a new version each time hesytools starts</small></div>
+          <Toggle
+            checked={settings.autoCheckUpdates}
+            onchange={(v) =>
+              run(async () => {
+                await api.setAutoCheckUpdates(v);
+                settings.autoCheckUpdates = v;
+              })}
+            label="Check for updates automatically"
+          />
         </div>
       </section>
 
