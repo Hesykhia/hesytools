@@ -14,7 +14,7 @@ use engine::{elevation, hooks, input, picker, webhook};
 use macro_store::MacroStore;
 use parking_lot::Mutex;
 use serde::Serialize;
-use settings::{HotkeyMode, Settings, Store, WatchAction, WatchRule, WebhookSettings};
+use settings::{ClickAt, HotkeyMode, Settings, Store, WatchAction, WatchRule, WebhookSettings};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::thread::JoinHandle;
@@ -426,7 +426,7 @@ fn sync_watches(app: &AppHandle, a: &Arc<App>) {
     a.watches.sync(
         app,
         &rules,
-        Arc::new(move |rule: &WatchRule| {
+        Arc::new(move |rule: &WatchRule, check: &Check| {
             let Some(a) = a2.upgrade() else { return };
             let _ = handle.emit("watch-hit", rule.id.clone());
             let result = match &rule.action {
@@ -439,6 +439,33 @@ fn sync_watches(app: &AppHandle, a: &Arc<App>) {
                     stop_everything(&handle, &a);
                     Ok(())
                 }
+                WatchAction::Click { button, times, at } => {
+                    let (x, y) = match at {
+                        ClickAt::Point { x, y } => (*x, *y),
+                        ClickAt::Found => found_point(rule, check),
+                    };
+                    let (button, times) = (*button, (*times).clamp(1, 100));
+                    std::thread::spawn(move || watch_click(button, times, x, y));
+                    Ok(())
+                }
+                WatchAction::PressKey { key, times } => {
+                    let (key, times) = (*key, (*times).clamp(1, 100));
+                    std::thread::spawn(move || {
+                        for i in 0..times {
+                            if i > 0 {
+                                std::thread::sleep(Duration::from_millis(60));
+                            }
+                            input::send(&[input::key_event(key, true)]);
+                            std::thread::sleep(Duration::from_millis(30));
+                            input::send(&[input::key_event(key, false)]);
+                        }
+                    });
+                    Ok(())
+                }
+                WatchAction::Shutdown { restart } => start_shutdown(&handle, &a, 60, *restart).map(|_| {
+                    let what = if *restart { "Restarting" } else { "Shutting down" };
+                    let _ = handle.emit("toast", format!("{what} in 1 minute (“{}”). The panic key cancels it.", rule.name));
+                }),
             };
             if let Err(e) = result {
                 let _ = handle.emit("toast", format!("Screen watch “{}”: {e}", rule.name));
@@ -476,8 +503,43 @@ fn describe_watch(rule: &WatchRule) -> String {
         WatchAction::Notify => String::new(),
         WatchAction::RunMacro { .. } => " Running its macro.".into(),
         WatchAction::StopEverything => " Stopped everything.".into(),
+        WatchAction::Click { .. } => " Clicked it.".into(),
+        WatchAction::PressKey { key, .. } => format!(" Pressed {key}."),
+        WatchAction::Shutdown { restart: true } => " Restarting the PC in 1 minute.".into(),
+        WatchAction::Shutdown { restart: false } => " Shutting down the PC in 1 minute.".into(),
     };
     format!("{what}.{action}")
+}
+
+/// Screen point of what a watch found: the image's centre or the matching
+/// pixel; text has no position, so the middle of the area.
+fn found_point(rule: &WatchRule, check: &Check) -> (i32, i32) {
+    let r = rule.region;
+    let (dx, dy) = match (&rule.condition, check.found) {
+        (Condition::ImageAppears { template, .. }, Some(f)) => (f.x + template.w / 2, f.y + template.h / 2),
+        (Condition::ColorAppears { .. }, Some(f)) => (f.x, f.y),
+        (Condition::ColorAt { dx, dy, .. }, _) => (*dx, *dy),
+        _ => (r.w / 2, r.h / 2),
+    };
+    (r.x + dx as i32, r.y + dy as i32)
+}
+
+/// Click at a point like a person would (held long enough for games to
+/// notice), then put the cursor back where it was.
+fn watch_click(button: MouseButton, times: u32, x: i32, y: i32) {
+    let back = input::cursor_pos();
+    input::send(&[input::move_abs_event(x, y)]);
+    std::thread::sleep(Duration::from_millis(15));
+    for i in 0..times {
+        if i > 0 {
+            std::thread::sleep(Duration::from_millis(60));
+        }
+        input::send(&[input::button_event(button, true)]);
+        std::thread::sleep(Duration::from_millis(20));
+        input::send(&[input::button_event(button, false)]);
+    }
+    std::thread::sleep(Duration::from_millis(15));
+    input::send(&[input::move_abs_event(back.0, back.1)]);
 }
 
 fn set_watches_enabled(app: &AppHandle, a: &Arc<App>, on: bool) -> Result<(), String> {
@@ -986,7 +1048,10 @@ fn schedule_shutdown(app: AppHandle, a: AppState, minutes: f64, restart: bool) -
     if !(minutes > 0.0) {
         return Err("Pick how many minutes to wait".into());
     }
-    let secs = (minutes * 60.0).round() as u64;
+    start_shutdown(&app, &a, (minutes * 60.0).round() as u64, restart)
+}
+
+fn start_shutdown(app: &AppHandle, a: &App, secs: u64, restart: bool) -> Result<ShutdownTimer, String> {
     engine::power::schedule(secs, restart)?;
     let timer = ShutdownTimer { ends_at: macro_store::now_ms() + secs * 1000, restart };
     *a.shutdown.lock() = Some(timer);

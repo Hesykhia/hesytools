@@ -3,7 +3,7 @@
 use engine::capture::Region;
 use engine::clicker::ClickerConfig;
 use engine::hotkey::Hotkey;
-use engine::keys::Key;
+use engine::keys::{Key, MouseButton};
 use engine::macros::RecordOptions;
 use engine::watch::Condition;
 use serde::{Deserialize, Serialize};
@@ -50,6 +50,29 @@ pub enum WatchAction {
         macro_id: String,
     },
     StopEverything,
+    /// Click `times` times, then put the cursor back.
+    Click {
+        button: MouseButton,
+        times: u32,
+        at: ClickAt,
+    },
+    PressKey {
+        key: Key,
+        times: u32,
+    },
+    /// Shut down (or restart) after a one-minute countdown, so the panic
+    /// key or Cancel can still stop it.
+    Shutdown {
+        restart: bool,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ClickAt {
+    /// On the thing that was found (image, colour), else the area's middle.
+    Found,
+    Point { x: i32, y: i32 },
 }
 
 /// A background rule: when `condition` becomes true in `region`, do `action`.
@@ -164,5 +187,26 @@ impl Store {
         let json = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
         std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
         std::fs::rename(&tmp, &self.path).map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn watch_actions_match_the_ui() {
+        let cases = [
+            (r#"{"kind":"click","button":"LeftMouse","times":3,"at":{"kind":"found"}}"#,
+             WatchAction::Click { button: MouseButton::Left, times: 3, at: ClickAt::Found }),
+            (r#"{"kind":"click","button":"RightMouse","times":1,"at":{"kind":"point","x":-1500,"y":40}}"#,
+             WatchAction::Click { button: MouseButton::Right, times: 1, at: ClickAt::Point { x: -1500, y: 40 } }),
+            (r#"{"kind":"pressKey","key":"E","times":2}"#,
+             WatchAction::PressKey { key: Key::from_name("E").unwrap(), times: 2 }),
+            (r#"{"kind":"shutdown","restart":true}"#, WatchAction::Shutdown { restart: true }),
+        ];
+        for (json, want) in cases {
+            assert_eq!(serde_json::from_str::<WatchAction>(json).unwrap(), want, "{json}");
+        }
     }
 }

@@ -4,7 +4,7 @@
 
 use crate::settings::WatchRule;
 use engine::timer::Waiter;
-use engine::watch::Watcher;
+use engine::watch::{Check, Watcher};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -22,7 +22,7 @@ pub struct WatchStatus {
     pub error: Option<String>,
 }
 
-pub type FireFn = Arc<dyn Fn(&WatchRule) + Send + Sync>;
+pub type FireFn = Arc<dyn Fn(&WatchRule, &Check) + Send + Sync>;
 
 #[derive(Default)]
 pub struct WatchRunner {
@@ -96,7 +96,7 @@ fn run(rule: WatchRule, waiter: &Waiter, app: &AppHandle, fire: &FireFn) {
                 let rising = c.matched && was_matched == Some(false);
                 if rising && last_fire.is_none_or(|t| t.elapsed() >= cooldown) {
                     last_fire = Some(Instant::now());
-                    fire(&rule);
+                    fire(&rule, &c);
                 }
                 // The first check only establishes the starting state, so a
                 // rule enabled while its text is already showing doesn't fire.

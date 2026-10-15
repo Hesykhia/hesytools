@@ -3,11 +3,11 @@
   // then, with its live view beside it). Nothing to click into.
   import { onDestroy, onMount } from "svelte";
   import { api, errorText, onWatchHit, onWatchStatus, type Settings, type WatchRule, type WatchStatus } from "$lib/api";
-  import { activity } from "$lib/activity.svelte";
   import { toast } from "$lib/toast.svelte";
   import InlineNumber from "../ui/InlineNumber.svelte";
   import Popover from "../ui/Popover.svelte";
   import Toggle from "../ui/Toggle.svelte";
+  import ActionEditor from "./ActionEditor.svelte";
   import ConditionEditor from "./ConditionEditor.svelte";
   import RegionChip from "./RegionChip.svelte";
   import WatchViewer from "./WatchViewer.svelte";
@@ -75,12 +75,6 @@
     await save();
   }
 
-  function actionLabel(r: WatchRule) {
-    const a = r.action;
-    if (a.kind === "runMacro") return `run “${activity.macros.find((m) => m.id === a.macroId)?.name ?? "pick a macro"}”`;
-    return a.kind === "stopEverything" ? "stop everything" : "just notify me";
-  }
-
   let ready = (r: WatchRule) => r.region.w > 0 && r.region.h > 0;
 </script>
 
@@ -96,7 +90,7 @@
   <ol class="how">
     <li><b>1</b><span><strong>Select an area</strong> of the screen, e.g. where your coins or a button appear</span></li>
     <li><b>2</b><span><strong>Choose what to look for</strong>: text, a number, a colour or an image</span></li>
-    <li><b>3</b><span><strong>Choose what happens</strong>: run a macro, stop everything, or get notified</span></li>
+    <li><b>3</b><span><strong>Choose what happens</strong>: click it, press a key, run a macro, get notified…</span></li>
   </ol>
 
   {#each rules as r (r.id || r)}
@@ -136,29 +130,7 @@
           <div>
             <span class="label">Then</span>
             <div class="line">
-              <Popover width={280}>
-                {#snippet trigger({ toggle, open })}
-                  <button class="chip" class:open onclick={toggle}>{actionLabel(r)}</button>
-                {/snippet}
-                {#snippet children({ close })}
-                  <button class="item" class:on={r.action.kind === "notify"} onclick={() => ((r.action = { kind: "notify" }), close())}>
-                    <b>Just notify me</b><small>A pop-up here (and Discord if on)</small>
-                  </button>
-                  <button class="item" class:on={r.action.kind === "stopEverything"} onclick={() => ((r.action = { kind: "stopEverything" }), close())}>
-                    <b>Stop everything</b><small>Like pressing the panic key</small>
-                  </button>
-                  <div class="eyebrow pad">Run a macro</div>
-                  {#each activity.macros as m}
-                    <button
-                      class="item"
-                      class:on={r.action.kind === "runMacro" && r.action.macroId === m.id}
-                      onclick={() => ((r.action = { kind: "runMacro", macroId: m.id }), close())}><b>{m.name}</b></button
-                    >
-                  {:else}
-                    <p class="none">No macros yet. Record one on the Macro tab.</p>
-                  {/each}
-                {/snippet}
-              </Popover>
+              <ActionEditor bind:action={r.action} />
               <label class="opt"><Toggle checked={r.discord} onchange={(v) => (r.discord = v)} label="Discord alert" /> + Discord alert</label>
             </div>
           </div>
@@ -358,48 +330,6 @@
     color: var(--text-3);
     font-size: 12.5px;
     font-weight: 500;
-  }
-  .chip {
-    font-weight: 650;
-    padding: 2px 10px;
-    border-radius: 8px;
-    color: var(--text);
-    background: rgba(139, 108, 255, 0.18);
-    box-shadow: inset 0 0 0 1px rgba(139, 108, 255, 0.4);
-  }
-  .chip:hover,
-  .chip.open {
-    background: rgba(139, 108, 255, 0.3);
-  }
-  .item {
-    display: block;
-    width: 100%;
-    text-align: left;
-    padding: 7px 10px;
-    border-radius: 9px;
-  }
-  .item:hover {
-    background: var(--glass-hover);
-  }
-  .item b {
-    display: block;
-    font-weight: 600;
-    font-size: 13.5px;
-  }
-  .item small {
-    color: var(--text-3);
-    font-size: 12px;
-  }
-  .item.on b {
-    color: var(--violet-2);
-  }
-  .pad {
-    padding: 10px 10px 4px;
-  }
-  .none {
-    font-size: 12.5px;
-    color: var(--text-3);
-    padding: 4px 10px 6px;
   }
   .opt {
     display: inline-flex;

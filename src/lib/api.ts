@@ -97,7 +97,14 @@ export interface ViewerCheck extends Check {
   height: number;
 }
 
-export type WatchAction = { kind: "notify" } | { kind: "runMacro"; macroId: string } | { kind: "stopEverything" };
+export type WatchAction =
+  | { kind: "notify" }
+  | { kind: "runMacro"; macroId: string }
+  | { kind: "stopEverything" }
+  | { kind: "click"; button: MouseButton; times: number; at: { kind: "found" } | { kind: "point"; x: number; y: number } }
+  | { kind: "pressKey"; key: string; times: number }
+  /** Shuts down / restarts after a 1 minute countdown. */
+  | { kind: "shutdown"; restart: boolean };
 
 export interface WatchRule {
   id: string;
