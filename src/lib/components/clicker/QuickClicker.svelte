@@ -338,8 +338,7 @@
               {#if picking}<p class="note">Click the spot you want. Esc cancels.</p>{/if}
             {/if}
           {/snippet}
-        </Popover>
-      {/if}<span class="comma">,</span>
+        </Popover>{/if}<span class="comma">,</span>
 
       <Popover width={300}>
         {#snippet trigger({ toggle, open })}
@@ -505,7 +504,7 @@
   }
   .comma,
   .dot-end {
-    margin: 0 6px 0 -1px;
+    margin: 0 8px 0 -5px;
   }
   .live .chip {
     background: linear-gradient(180deg, rgba(61, 242, 176, 0.2), rgba(61, 242, 176, 0.07));

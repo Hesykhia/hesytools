@@ -8,7 +8,7 @@
   --glass-hover: rgba(255, 255, 255, 0.08);
   --stroke: rgba(255, 255, 255, 0.08);
   --stroke-strong: rgba(255, 255, 255, 0.14);
-  --popover: rgba(22, 22, 30, 0.92);
+  --popover: #17161f;
 
   /* Text */
   --text: #f4f4f8;
