@@ -1,6 +1,7 @@
 //! Runs enabled Screen Watch rules in the background, one light thread each.
-//! A rule fires when its condition *becomes* true (not on every check while
-//! it stays true), and not again until its cooldown has passed.
+//! Each thing a rule looks for fires when it *becomes* true (not on every
+//! check while it stays true), and not again until its cooldown has passed.
+//! Items are independent: yellow showing up fires for yellow, red for red.
 
 use crate::settings::WatchRule;
 use engine::timer::Waiter;
@@ -22,11 +23,21 @@ pub struct WatchStatus {
     pub error: Option<String>,
 }
 
-/// `Start` when the rule triggers; `End` once that match goes away again (or
-/// the watch stops), for actions that last while it's showing.
+/// `Start` when item `item` (index into `WatchRule::items`) triggers; `End`
+/// once that match goes away again (or the watch stops), for actions that
+/// last while it's showing.
 pub enum Edge<'a> {
-    Start(&'a Check),
-    End,
+    Start { item: usize, check: &'a Check },
+    End { item: usize },
+}
+
+/// Per-item trigger state.
+struct Item {
+    watcher: Watcher,
+    was_matched: Option<bool>,
+    last_fire: Option<Instant>,
+    /// Triggered and not yet ended.
+    active: bool,
 }
 
 pub type FireFn = Arc<dyn Fn(&WatchRule, Edge) + Send + Sync>;
@@ -80,50 +91,61 @@ fn run(rule: WatchRule, waiter: &Waiter, app: &AppHandle, fire: &FireFn) {
             },
         );
     };
-    let mut watcher = match Watcher::new(rule.region, rule.condition.clone()) {
-        Ok(w) => w,
-        Err(e) => {
-            status(false, None, Some(e));
-            return;
+    let mut items = Vec::new();
+    for c in rule.items() {
+        match Watcher::new(rule.region, c.clone()) {
+            Ok(watcher) => items.push(Item { watcher, was_matched: None, last_fire: None, active: false }),
+            Err(e) => {
+                status(false, None, Some(e));
+                return;
+            }
         }
-    };
+    }
     let poll = Duration::from_secs_f64(rule.poll_ms.clamp(50.0, 60_000.0) / 1000.0);
     let cooldown = Duration::from_secs_f64(rule.cooldown_ms.max(0.0) / 1000.0);
-    let mut was_matched = None::<bool>;
-    let mut last_text = None::<String>;
-    let mut last_fire: Option<Instant> = None;
-    // Triggered and not yet ended.
-    let mut active = false;
-    let end = |active: &mut bool| {
-        if std::mem::take(active) {
-            fire(&rule, Edge::End);
-        }
-    };
+    let mut shown: Option<(bool, Option<String>)> = None;
     loop {
-        match watcher.check() {
-            Ok(c) => {
-                // Only tell the UI when something it shows actually changed.
-                if was_matched != Some(c.matched) || (c.ocr_ran && c.text != last_text) {
-                    status(c.matched, c.text.clone(), None);
-                    last_text = c.text.clone();
+        let mut any = false;
+        let mut text = None::<String>;
+        let mut error = None::<String>;
+        for (i, it) in items.iter_mut().enumerate() {
+            match it.watcher.check() {
+                Ok(c) => {
+                    any |= c.matched;
+                    if text.is_none() {
+                        text = c.text.clone();
+                    }
+                    let rising = c.matched && it.was_matched == Some(false);
+                    if rising && it.last_fire.is_none_or(|t| t.elapsed() >= cooldown) {
+                        it.last_fire = Some(Instant::now());
+                        it.active = true;
+                        fire(&rule, Edge::Start { item: i, check: &c });
+                    }
+                    if !c.matched && std::mem::take(&mut it.active) {
+                        fire(&rule, Edge::End { item: i });
+                    }
+                    // The first check only establishes the starting state, so
+                    // a rule enabled while its text is already showing doesn't
+                    // fire.
+                    it.was_matched = Some(c.matched);
                 }
-                let rising = c.matched && was_matched == Some(false);
-                if rising && last_fire.is_none_or(|t| t.elapsed() >= cooldown) {
-                    last_fire = Some(Instant::now());
-                    active = true;
-                    fire(&rule, Edge::Start(&c));
-                }
-                if !c.matched {
-                    end(&mut active);
-                }
-                // The first check only establishes the starting state, so a
-                // rule enabled while its text is already showing doesn't fire.
-                was_matched = Some(c.matched);
+                Err(e) => error = Some(e),
             }
-            Err(e) => status(false, None, Some(e)),
+        }
+        if let Some(e) = error {
+            status(false, None, Some(e));
+            shown = None;
+        } else if shown.as_ref() != Some(&(any, text.clone())) {
+            // Only tell the UI when something it shows actually changed.
+            status(any, text.clone(), None);
+            shown = Some((any, text));
         }
         if !waiter.wait(poll) {
-            end(&mut active);
+            for (i, it) in items.iter_mut().enumerate() {
+                if std::mem::take(&mut it.active) {
+                    fire(&rule, Edge::End { item: i });
+                }
+            }
             return;
         }
     }

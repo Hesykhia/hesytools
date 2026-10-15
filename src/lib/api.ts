@@ -116,6 +116,8 @@ export interface WatchRule {
   condition: Condition;
   pollMs: number;
   action: WatchAction;
+  /** More things to look for in the same area; each triggers on its own. */
+  also?: Condition[];
   discord: boolean;
   cooldownMs: number;
 }

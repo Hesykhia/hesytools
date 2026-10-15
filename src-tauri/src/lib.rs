@@ -430,15 +430,16 @@ fn sync_watches(app: &AppHandle, a: &Arc<App>) {
         &rules,
         Arc::new(move |rule: &WatchRule, edge: Edge| {
             let Some(a) = a2.upgrade() else { return };
-            let check = match edge {
-                Edge::Start(c) => c,
-                Edge::End => {
+            let (item, check) = match edge {
+                Edge::Start { item, check } => (item, check),
+                Edge::End { item } => {
                     if rule.action == WatchAction::PauseMacros {
-                        resume_macros(&handle, &a, &rule.id);
+                        resume_macros(&handle, &a, &format!("{}#{item}", rule.id));
                     }
                     return;
                 }
             };
+            let Some(condition) = rule.items().nth(item) else { return };
             let _ = handle.emit("watch-hit", rule.id.clone());
             let result = match &rule.action {
                 WatchAction::Notify => {
@@ -453,7 +454,7 @@ fn sync_watches(app: &AppHandle, a: &Arc<App>) {
                 WatchAction::Click { button, times, at } => {
                     let (x, y) = match at {
                         ClickAt::Point { x, y } => (*x, *y),
-                        ClickAt::Found => found_point(rule, check),
+                        ClickAt::Found => found_point(rule, condition, check),
                     };
                     let (button, times) = (*button, (*times).clamp(1, 100));
                     std::thread::spawn(move || watch_click(button, times, x, y));
@@ -476,7 +477,7 @@ fn sync_watches(app: &AppHandle, a: &Arc<App>) {
                 WatchAction::PauseMacros => {
                     let first = {
                         let mut holders = a.macro_pausers.lock();
-                        holders.insert(rule.id.clone());
+                        holders.insert(format!("{}#{item}", rule.id));
                         holders.len() == 1
                     };
                     macros::set_paused(true);
@@ -498,16 +499,16 @@ fn sync_watches(app: &AppHandle, a: &Arc<App>) {
                     &handle,
                     &a,
                     &format!("Screen watch “{}” triggered", rule.name),
-                    &describe_watch(rule),
+                    &describe_watch(rule, condition),
                 );
             }
         }),
     );
 }
 
-fn describe_watch(rule: &WatchRule) -> String {
+fn describe_watch(rule: &WatchRule, condition: &Condition) -> String {
     use engine::watch::Cmp;
-    let what = match &rule.condition {
+    let what = match condition {
         Condition::TextAppears { text, .. } => format!("“{text}” appeared"),
         Condition::TextGone { text, .. } => format!("“{text}” disappeared"),
         Condition::Number { op, value } => {
@@ -535,11 +536,11 @@ fn describe_watch(rule: &WatchRule) -> String {
     format!("{what}.{action}")
 }
 
-/// A pausing watch's match went away (or the watch stopped). Macros carry on
-/// once no watch is holding them.
-fn resume_macros(app: &AppHandle, a: &App, rule_id: &str) {
+/// A pausing watch item's match went away (or the watch stopped). Macros
+/// carry on once nothing is holding them. `holder` is "<rule id>#<item>".
+fn resume_macros(app: &AppHandle, a: &App, holder: &str) {
     let mut holders = a.macro_pausers.lock();
-    if !holders.remove(rule_id) || !holders.is_empty() {
+    if !holders.remove(holder) || !holders.is_empty() {
         return;
     }
     drop(holders);
@@ -551,9 +552,9 @@ fn resume_macros(app: &AppHandle, a: &App, rule_id: &str) {
 
 /// Screen point of what a watch found: the image's centre or the matching
 /// pixel; text has no position, so the middle of the area.
-fn found_point(rule: &WatchRule, check: &Check) -> (i32, i32) {
+fn found_point(rule: &WatchRule, condition: &Condition, check: &Check) -> (i32, i32) {
     let r = rule.region;
-    let (dx, dy) = match (&rule.condition, check.found) {
+    let (dx, dy) = match (condition, check.found) {
         (Condition::ImageAppears { template, .. }, Some(f)) => (f.x + template.w / 2, f.y + template.h / 2),
         (Condition::ColorAppears { .. }, Some(f)) => (f.x, f.y),
         (Condition::ColorAt { dx, dy, .. }, _) => (*dx, *dy),

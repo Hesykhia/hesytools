@@ -88,10 +88,20 @@ pub struct WatchRule {
     pub condition: Condition,
     pub poll_ms: f64,
     pub action: WatchAction,
+    /// More things to look for in the same area. Each one triggers on its
+    /// own (and a click goes to whichever was found).
+    pub also: Vec<Condition>,
     /// Also send a Discord alert when it triggers.
     pub discord: bool,
     /// Don't trigger again within this long.
     pub cooldown_ms: f64,
+}
+
+impl WatchRule {
+    /// Everything this watch looks for: the main condition, then `also`.
+    pub fn items(&self) -> impl Iterator<Item = &Condition> {
+        std::iter::once(&self.condition).chain(&self.also)
+    }
 }
 
 impl Default for WatchRule {
@@ -107,6 +117,7 @@ impl Default for WatchRule {
             },
             poll_ms: 250.0,
             action: WatchAction::Notify,
+            also: Vec::new(),
             discord: false,
             cooldown_ms: 5000.0,
         }

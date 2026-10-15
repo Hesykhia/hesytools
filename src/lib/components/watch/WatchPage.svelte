@@ -2,7 +2,7 @@
   // Screen Watch on one page: every watch is shown in full (where / what /
   // then, with its live view beside it). Nothing to click into.
   import { onDestroy, onMount } from "svelte";
-  import { api, errorText, onWatchHit, onWatchStatus, type Settings, type WatchRule, type WatchStatus } from "$lib/api";
+  import { api, errorText, onWatchHit, onWatchStatus, type Condition, type Settings, type WatchRule, type WatchStatus } from "$lib/api";
   import { toast } from "$lib/toast.svelte";
   import InlineNumber from "../ui/InlineNumber.svelte";
   import Popover from "../ui/Popover.svelte";
@@ -68,6 +68,7 @@
       condition: { kind: "textAppears", text: "", digitsAfter: null },
       pollMs: 250,
       action: { kind: "notify" },
+      also: [],
       discord: false,
       cooldownMs: 5000,
     });
@@ -76,6 +77,26 @@
   }
 
   let ready = (r: WatchRule) => r.region.w > 0 && r.region.h > 0;
+
+  // ── Several things to look for ("+ and"); each triggers on its own ──
+  const items = (r: WatchRule): Condition[] => [r.condition, ...(r.also ?? [])];
+  /** Which item each watch's live view shows. */
+  let viewing = $state<Record<string, number>>({});
+  const viewIndex = (r: WatchRule) => Math.min(viewing[r.id] ?? 0, items(r).length - 1);
+  function addItem(r: WatchRule) {
+    // Start from a copy of the last one: adding another colour is one click.
+    const last = items(r).at(-1)!;
+    r.also = [...(r.also ?? []), structuredClone($state.snapshot(last))];
+    viewing[r.id] = items(r).length - 1;
+  }
+  function removeItem(r: WatchRule, i: number) {
+    r.also = (r.also ?? []).filter((_, j) => j !== i);
+    viewing[r.id] = 0;
+  }
+  function pickColor(c: Condition, dx: number, dy: number, rgb: [number, number, number]) {
+    if (c.kind === "colorAt") Object.assign(c, { dx, dy, rgb });
+    if (c.kind === "colorAppears") c.rgb = rgb;
+  }
 </script>
 
 <div class="page">
@@ -95,6 +116,7 @@
 
   {#each rules as r (r.id || r)}
     {@const st = status[r.id]}
+    {@const vc = items(r)[viewIndex(r)]}
     <article class="watch glass" class:on={r.enabled} class:hit={flash[r.id]}>
       <div class="form">
         <div class="top">
@@ -121,7 +143,22 @@
           <span class="n">2</span>
           <div>
             <span class="label">Look for</span>
-            <div class="line"><ConditionEditor bind:condition={r.condition} /></div>
+            <div class="line">
+              {#if r.also?.length}<button class="item-n" class:on={viewIndex(r) === 0} title="Show in the live view" onclick={() => (viewing[r.id] = 0)}>1</button>{/if}
+              <ConditionEditor bind:condition={r.condition} />
+            </div>
+            {#each r.also ?? [] as _, i (i)}
+              <div class="line and">
+                <button class="item-n" class:on={viewIndex(r) === i + 1} title="Show in the live view" onclick={() => (viewing[r.id] = i + 1)}>{i + 2}</button>
+                <span class="soft">and</span>
+                <ConditionEditor bind:condition={r.also![i]} />
+                <button class="x" title="Remove" aria-label="Remove" onclick={() => removeItem(r, i)}>
+                  <svg width="8" height="8" viewBox="0 0 8 8"><path d="M1 1l6 6M7 1L1 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
+                </button>
+              </div>
+            {/each}
+            <button class="add-and" onclick={() => addItem(r)}>+ and</button>
+            {#if r.also?.length}<p class="each">Each one triggers on its own{r.action.kind === "click" ? ", and the click goes to whichever was found" : ""}.</p>{/if}
           </div>
         </div>
 
@@ -149,16 +186,20 @@
       </div>
 
       <div class="viewer">
-        <span class="label">Live view</span>
+        <span class="label">
+          Live view
+          {#if r.also?.length}
+            <span class="view-pick">
+              {#each items(r) as _, i}
+                <button class="item-n" class:on={viewIndex(r) === i} onclick={() => (viewing[r.id] = i)}>{i + 1}</button>
+              {/each}
+            </span>
+          {/if}
+        </span>
         <WatchViewer
           region={ready(r) ? r.region : null}
-          condition={r.condition}
-          onpickcolor={r.condition.kind === "colorAt" || r.condition.kind === "colorAppears"
-            ? (dx, dy, rgb) => {
-                if (r.condition.kind === "colorAt") Object.assign(r.condition, { dx, dy, rgb });
-                if (r.condition.kind === "colorAppears") r.condition.rgb = rgb;
-              }
-            : undefined}
+          condition={vc}
+          onpickcolor={vc.kind === "colorAt" || vc.kind === "colorAppears" ? (dx, dy, rgb) => pickColor(vc, dx, dy, rgb) : undefined}
         />
         <p class="hint">It triggers when this changes from “doesn't match” to “matches”.</p>
       </div>
@@ -325,6 +366,65 @@
     gap: 8px;
     font-size: 14.5px;
     font-weight: 550;
+  }
+  .line.and {
+    margin-top: 8px;
+  }
+  .item-n {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-3);
+    background: var(--glass);
+    box-shadow: inset 0 0 0 1px var(--stroke);
+  }
+  .item-n:hover {
+    color: var(--text);
+  }
+  .item-n.on {
+    color: var(--text);
+    background: rgba(139, 108, 255, 0.25);
+    box-shadow: inset 0 0 0 1px rgba(139, 108, 255, 0.6);
+  }
+  .view-pick {
+    display: inline-flex;
+    gap: 4px;
+    margin-left: 8px;
+    vertical-align: middle;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .x {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    color: var(--text-3);
+  }
+  .x:hover {
+    color: var(--text);
+    background: var(--glass-hover);
+  }
+  .add-and {
+    margin-top: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 8px;
+    color: var(--text-2);
+    border: 1px dashed var(--stroke-strong);
+  }
+  .add-and:hover {
+    color: var(--text);
+    border-color: rgba(139, 108, 255, 0.6);
+  }
+  .each {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-3);
   }
   .soft {
     color: var(--text-3);
