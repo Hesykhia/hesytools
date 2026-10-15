@@ -219,6 +219,7 @@ export const api = {
   setHotkey: (id: HotkeyId, hotkey: string | null) => invoke<Settings>("set_hotkey", { id, hotkey }),
   captureHotkey: () => invoke<string | null>("capture_hotkey"),
   cancelCapture: () => invoke<void>("cancel_capture"),
+  windowInput: (input: { vk?: number; button?: number; down: boolean }) => invoke<void>("window_input", input),
   pickPoint: () => invoke<[number, number] | null>("pick_point"),
   cancelPick: () => invoke<void>("cancel_pick"),
   clickerToggle: () => invoke<boolean>("clicker_toggle"),

@@ -25,6 +25,7 @@
   import UpdateCard from "$lib/components/UpdateCard.svelte";
   import { checkForUpdates } from "$lib/update.svelte";
   import { initShutdown, remaining, shutdown } from "$lib/shutdown.svelte";
+  import { forwardWindowInput } from "$lib/windowInput";
 
   type Page = "macros" | "watch" | "settings";
   const ORDER: Page[] = ["macros", "watch", "settings"];
@@ -86,7 +87,11 @@
         activity.macros = list;
       }),
     ];
-    return () => unlisteners.forEach((u) => u.then((f) => f()));
+    const stopForwarding = forwardWindowInput();
+    return () => {
+      stopForwarding();
+      unlisteners.forEach((u) => u.then((f) => f()));
+    };
   });
 </script>
 

@@ -299,6 +299,8 @@ export function install() {
         case "set_recording_overlay":
           settings.recordingOverlay = a.on;
           return;
+        case "window_input":
+          return;
         case "schedule_shutdown":
           shutdownTimer = { endsAt: Date.now() + a.minutes * 60000, restart: a.restart };
           await emit("shutdown-state", shutdownTimer);

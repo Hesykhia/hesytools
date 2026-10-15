@@ -6,6 +6,7 @@ use engine::capture::Region;
 use engine::clicker::{Clicker, ClickerConfig, ClickerStatus, ExitReason};
 use engine::hooks::InputKind;
 use engine::hotkey::{Hotkey, HotkeyManager, Trigger};
+use engine::keys::{Key, MouseButton};
 use engine::macros::{self, Macro, RecordOptions, Recorder, Step};
 use engine::timer::Waiter;
 use engine::watch::{Check, Condition, Watcher};
@@ -548,6 +549,27 @@ async fn capture_hotkey(a: AppState<'_>) -> Result<Option<String>, String> {
 #[tauri::command]
 fn cancel_capture(a: AppState) {
     a.hotkeys.cancel_capture();
+}
+
+/// A key or mouse button our own window saw (see HotkeyManager::feed_local).
+/// `vk` is the key's virtual-key code; `button` is a DOM mouse button number.
+#[tauri::command]
+fn window_input(a: AppState, vk: Option<u16>, button: Option<u8>, down: bool) {
+    let kind = match (vk, button) {
+        (Some(vk), _) => InputKind::Key { key: Key(vk), scan: 0, extended: false, down },
+        (None, Some(b)) => {
+            let button = match b {
+                1 => MouseButton::Middle,
+                2 => MouseButton::Right,
+                3 => MouseButton::X1,
+                4 => MouseButton::X2,
+                _ => return,
+            };
+            InputKind::Button { button, down }
+        }
+        _ => return,
+    };
+    a.hotkeys.feed_local(kind);
 }
 
 #[tauri::command]
@@ -1172,6 +1194,7 @@ pub fn run() {
             set_hotkey,
             capture_hotkey,
             cancel_capture,
+            window_input,
             pick_point,
             cancel_pick,
             clicker_toggle,

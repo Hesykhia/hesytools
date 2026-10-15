@@ -4,13 +4,14 @@
 
 use crate::hooks::{self, InputKind};
 use crate::keys::{Key, Modifier, MouseButton};
-use crossbeam_channel::Sender;
+use crossbeam_channel::{Sender, select, unbounded};
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Trigger {
@@ -95,14 +96,29 @@ pub struct HotkeyManager {
     bindings: RwLock<HashMap<String, Hotkey>>,
     capture: Mutex<Option<Sender<Option<Hotkey>>>>,
     suspended: AtomicBool,
+    local: Sender<InputKind>,
+}
+
+/// Same physical key/button and direction? Modifiers compare by kind, since
+/// the hook reports LShift where the window reports plain Shift.
+fn same_input(a: &InputKind, b: &InputKind) -> bool {
+    match (a, b) {
+        (InputKind::Key { key: ka, down: da, .. }, InputKind::Key { key: kb, down: db, .. }) => {
+            da == db && (ka == kb || (ka.modifier().is_some() && ka.modifier() == kb.modifier()))
+        }
+        (InputKind::Button { button: ba, down: da }, InputKind::Button { button: bb, down: db }) => ba == bb && da == db,
+        _ => false,
+    }
 }
 
 impl HotkeyManager {
     pub fn start(callback: impl Fn(&str, bool) + Send + Sync + 'static) -> Arc<Self> {
+        let (local_tx, local_rx) = unbounded::<InputKind>();
         let mgr = Arc::new(Self {
             bindings: RwLock::new(HashMap::new()),
             capture: Mutex::new(None),
             suspended: AtomicBool::new(false),
+            local: local_tx,
         });
         let rx = hooks::subscribe(false);
         let m = mgr.clone();
@@ -113,13 +129,35 @@ impl HotkeyManager {
                 // Bindings currently held down, so we report each press once
                 // (ignoring key auto-repeat) and can report the release.
                 let mut active: Vec<(String, Trigger)> = Vec::new();
-                for ev in rx {
-                    // Our own injected events must never trigger hotkeys,
-                    // e.g. an autoclicker pressing its own toggle key.
-                    if ev.ours {
+                // Recent input and whether it came from our window, so a key
+                // seen by both the hook and the window only counts once.
+                let mut recent: Vec<(InputKind, bool, Instant)> = Vec::new();
+                loop {
+                    let (kind, local) = select! {
+                        recv(rx) -> ev => match ev {
+                            // Our own injected events must never trigger
+                            // hotkeys, e.g. an autoclicker pressing its own
+                            // toggle key.
+                            Ok(ev) if ev.ours => continue,
+                            Ok(ev) => (ev.kind, false),
+                            Err(_) => break,
+                        },
+                        recv(local_rx) -> k => match k {
+                            Ok(k) => (k, true),
+                            Err(_) => break,
+                        },
+                    };
+                    let now = Instant::now();
+                    recent.retain(|(_, _, at)| now - *at < Duration::from_millis(300));
+                    if !matches!(kind, InputKind::Key { .. } | InputKind::Button { .. }) {
                         continue;
                     }
-                    let (trigger, down) = match ev.kind {
+                    if let Some(i) = recent.iter().position(|(k, l, _)| *l != local && same_input(k, &kind)) {
+                        recent.swap_remove(i);
+                        continue;
+                    }
+                    recent.push((kind, local, now));
+                    let (trigger, down) = match kind {
                         InputKind::Key { key, down, .. } => {
                             if let Some(md) = key.modifier() {
                                 if down {
@@ -249,6 +287,13 @@ impl HotkeyManager {
                 return Some(hk);
             }
         }
+    }
+
+    /// Input our own window saw. Windows doesn't always run the low-level
+    /// hooks for keys going to hesytools' own (WebView2) window, so the UI
+    /// forwards what it gets; anything the hook already reported is ignored.
+    pub fn feed_local(&self, kind: InputKind) {
+        let _ = self.local.send(kind);
     }
 
     pub fn cancel_capture(&self) {
