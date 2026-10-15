@@ -9,6 +9,7 @@
   import MacroLibrary from "$lib/components/macros/MacroLibrary.svelte";
   import MacroEditor from "$lib/components/macros/MacroEditor.svelte";
   import RecordingBar from "$lib/components/macros/RecordingBar.svelte";
+  import RecordingCard from "$lib/components/macros/RecordingCard.svelte";
   import { activity, initActivity } from "$lib/activity.svelte";
   import WatchPage from "$lib/components/watch/WatchPage.svelte";
   import SettingsSheet from "$lib/components/SettingsSheet.svelte";
@@ -93,6 +94,7 @@
           {#if page === "macros" && editingMacro}
             <MacroEditor source={editingMacro} onback={() => openMacro(null)} />
           {:else if page === "macros"}
+            {#if activity.recording}<RecordingCard />{/if}
             <QuickClicker bind:settings bind:running />
             <MacroLibrary bind:settings onopen={openMacro} />
           {:else}

@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 const HK_CLICKER: &str = "clicker";
 const HK_PANIC: &str = "panic";
@@ -43,6 +43,8 @@ struct App {
     recorder: Mutex<Option<Recorder>>,
     /// Our main window, so the recorder can ignore clicks on hesytools itself.
     main_hwnd: AtomicIsize,
+    /// The recording overlay window, ignored by the recorder the same way.
+    hud_hwnd: Arc<AtomicIsize>,
     /// The live viewer's watcher, kept between polls so OCR is skipped while
     /// the region is unchanged. Keyed by its region+condition.
     viewer: Mutex<Option<(String, Watcher)>>,
@@ -150,7 +152,14 @@ fn start_recording(app: &AppHandle, a: &Arc<App>) -> Result<(), String> {
         (s.record, s.record_hotkey)
     };
     let own = a.main_hwnd.load(Ordering::Relaxed);
-    *slot = Some(Recorder::start(opts, move |ev| {
+    let hud = a.hud_hwnd.clone();
+    let progress_app = app.clone();
+    let on_progress = move |steps: &[Step]| {
+        let _ = progress_app.emit("recording-progress", steps);
+    };
+    *slot = Some(Recorder::start(
+        opts,
+        move |ev| {
         // The record hotkey itself is never part of the macro.
         if let Some(hk) = record_hk {
             let is_hotkey = match (hk.trigger, ev.kind) {
@@ -162,19 +171,73 @@ fn start_recording(app: &AppHandle, a: &Arc<App>) -> Result<(), String> {
                 return false;
             }
         }
-        // Nothing done inside hesytools' own window gets recorded.
-        match ev.kind {
-            InputKind::Key { .. } => input::foreground_window() != own,
-            _ => input::root_window_at(ev.x, ev.y) != own,
-        }
-    }));
+        // Nothing done inside hesytools' own windows gets recorded.
+        let hud = hud.load(Ordering::Relaxed);
+        let target = match ev.kind {
+            InputKind::Key { .. } => input::foreground_window(),
+            _ => input::root_window_at(ev.x, ev.y),
+        };
+        target != own && (hud == 0 || target != hud)
+        },
+        on_progress,
+    ));
+    drop(slot);
     let _ = app.emit("recording-state", true);
+    if a.settings.lock().recording_overlay {
+        open_recording_overlay(app, a);
+    }
     Ok(())
+}
+
+const HUD_W: f64 = 320.0;
+const HUD_H: f64 = 400.0;
+
+/// A small always-on-top panel in the top-right corner of the main monitor
+/// that lists steps as they're recorded. It never takes focus from the game.
+/// Must not be called from the main thread (window creation would deadlock).
+fn open_recording_overlay(app: &AppHandle, a: &App) {
+    if let Some(w) = app.get_webview_window("hud") {
+        let _ = w.show();
+        return;
+    }
+    let mut builder = WebviewWindowBuilder::new(app, "hud", WebviewUrl::App("hud".into()))
+        .title("hesytools \u{b7} recording")
+        .inner_size(HUD_W, HUD_H)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .focused(false);
+    if let Ok(Some(m)) = app.primary_monitor() {
+        let scale = m.scale_factor();
+        let (pos, size) = (m.position(), m.size());
+        let x = (pos.x as f64 + size.width as f64) / scale - HUD_W - 18.0;
+        let y = pos.y as f64 / scale + 18.0;
+        builder = builder.position(x, y);
+    }
+    match builder.build() {
+        Ok(w) => {
+            if let Ok(h) = w.hwnd() {
+                a.hud_hwnd.store(h.0 as isize, Ordering::Relaxed);
+            }
+        }
+        Err(e) => eprintln!("recording overlay: {e}"),
+    }
+}
+
+fn close_recording_overlay(app: &AppHandle, a: &App) {
+    if let Some(w) = app.get_webview_window("hud") {
+        let _ = w.close();
+    }
+    a.hud_hwnd.store(0, Ordering::Relaxed);
 }
 
 fn stop_recording(app: &AppHandle, a: &App) {
     let Some(rec) = a.recorder.lock().take() else { return };
     let steps: Vec<Step> = rec.stop();
+    close_recording_overlay(app, a);
     let _ = app.emit("recording-state", false);
     let _ = app.emit("recording-finished", steps);
 }
@@ -512,14 +575,32 @@ fn activity_status(a: AppState) -> ActivityStatus {
     ActivityStatus { playing: a.playing_id(), recording: a.recorder.lock().is_some() }
 }
 
+// Async so they run off the main thread: creating the overlay window from a
+// synchronous command deadlocks on Windows.
 #[tauri::command]
-fn recording_start(app: AppHandle, a: AppState) -> Result<(), String> {
+async fn recording_start(app: AppHandle, a: AppState<'_>) -> Result<(), String> {
     start_recording(&app, &a)
 }
 
 #[tauri::command]
-fn recording_stop(app: AppHandle, a: AppState) {
+async fn recording_stop(app: AppHandle, a: AppState<'_>) -> Result<(), String> {
     stop_recording(&app, &a);
+    Ok(())
+}
+
+#[tauri::command]
+fn set_recording_overlay(a: AppState, on: bool) -> Result<(), String> {
+    a.update(|s| s.recording_overlay = on).map(|_| ())
+}
+
+/// Monitor rectangles in physical pixels, for drawing the click map.
+#[tauri::command]
+fn screen_layout(app: AppHandle) -> Vec<Region> {
+    app.available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| Region { x: m.position().x, y: m.position().y, w: m.size().width, h: m.size().height })
+        .collect()
 }
 
 // ── Commands: screen watch ──────────────────────────────────────────────────
@@ -682,6 +763,7 @@ pub fn run() {
                 playing: Mutex::new(None),
                 recorder: Mutex::new(None),
                 main_hwnd: AtomicIsize::new(main_hwnd),
+                hud_hwnd: Arc::new(AtomicIsize::new(0)),
                 viewer: Mutex::new(None),
                 watches: WatchRunner::default(),
             });
@@ -710,6 +792,8 @@ pub fn run() {
             activity_status,
             recording_start,
             recording_stop,
+            set_recording_overlay,
+            screen_layout,
             pick_region,
             viewer_check,
             viewer_frame,

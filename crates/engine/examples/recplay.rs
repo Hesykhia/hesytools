@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 fn main() {
     let secs: u64 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(4);
-    let rec = Recorder::start(RecordOptions::default(), |_| true);
+    let rec = Recorder::start(RecordOptions::default(), |_| true, |steps| eprintln!("live: {} steps", steps.len()));
     eprintln!("recplay: recording for {secs}s");
     std::thread::sleep(Duration::from_secs(secs));
     let steps = rec.stop();

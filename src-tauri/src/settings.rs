@@ -94,6 +94,8 @@ pub struct Settings {
     /// Starts/stops macro recording from anywhere.
     pub record_hotkey: Option<Hotkey>,
     pub record: RecordOptions,
+    /// Show the small always-on-top panel listing steps while recording.
+    pub recording_overlay: bool,
     pub webhook: WebhookSettings,
     pub watches: Vec<WatchRule>,
 }
@@ -107,6 +109,7 @@ impl Default for Settings {
             panic_hotkey: Key::from_name("F8").map(Hotkey::key),
             record_hotkey: Key::from_name("F9").map(Hotkey::key),
             record: RecordOptions::default(),
+            recording_overlay: true,
             webhook: WebhookSettings::default(),
             watches: Vec::new(),
         }

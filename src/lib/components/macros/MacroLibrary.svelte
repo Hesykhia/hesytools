@@ -49,7 +49,8 @@
     </div>
   </div>
 
-  {#if activity.macros.length === 0}
+
+  {#if activity.macros.length === 0 && !activity.recording}
     <MacrosEmpty />
   {:else}
     <div class="grid">

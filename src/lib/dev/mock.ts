@@ -21,6 +21,7 @@ const settings: Settings = {
   panicHotkey: "F8",
   recordHotkey: "F9",
   record: { recordMoves: false, minWaitMs: 1 },
+  recordingOverlay: true,
   webhook: { url: "", mentionUserId: "", notifyClickerFinished: true, notifyMacroFinished: true },
   watches: [
     {
@@ -177,6 +178,19 @@ async function applyScene() {
   if (kind === "recording") {
     recording = true;
     await emit("recording-state", true);
+    await emit("recording-progress", [
+      { type: "key", key: "W", action: "down", holdMs: 0 },
+      { type: "wait", ms: 300 },
+      { type: "click", button: "LeftMouse", action: "tap", holdMs: 30, at: [940, 494] },
+      { type: "wait", ms: 820 },
+      { type: "click", button: "LeftMouse", action: "tap", holdMs: 25, at: [1249, 464] },
+      { type: "wait", ms: 410 },
+      { type: "key", key: "E", action: "tap", holdMs: 40 },
+      { type: "wait", ms: 1500 },
+      { type: "click", button: "RightMouse", action: "tap", holdMs: 30, at: [-900, 610] },
+      { type: "wait", ms: 260 },
+      { type: "click", button: "LeftMouse", action: "tap", holdMs: 30, at: [1500, 300] },
+    ]);
   }
 }
 
@@ -264,6 +278,14 @@ export function install() {
         case "save_watches":
           settings.watches = a.watches.map((w: any, i: number) => ({ ...w, id: w.id || `w${Date.now()}${i}` }));
           return structuredClone(settings.watches);
+        case "set_recording_overlay":
+          settings.recordingOverlay = a.on;
+          return;
+        case "screen_layout":
+          return [
+            { x: -1920, y: 0, w: 1920, h: 1080 },
+            { x: 0, y: 0, w: 1920, h: 1080 },
+          ];
         case "recording_start":
           recording = true;
           await emit("recording-state", true);

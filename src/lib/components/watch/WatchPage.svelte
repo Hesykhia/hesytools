@@ -49,7 +49,9 @@
   let unlisten: (() => void)[] = [];
   onMount(async () => {
     unlisten = await Promise.all([
-      onWatchStatus((s) => (status[s.id] = s)),
+      onWatchStatus((s) => {
+        status[s.id] = s;
+      }),
       onWatchHit((id) => {
         flash[id] = true;
         setTimeout(() => delete flash[id], 1500);

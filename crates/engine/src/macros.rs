@@ -332,24 +332,44 @@ pub struct Recorder {
     opts: RecordOptions,
 }
 
+/// How often the live view gets the macro-so-far while recording.
+const PROGRESS_EVERY: Duration = Duration::from_millis(150);
+
 impl Recorder {
     /// `keep(event)` decides which events are recorded (e.g. drop clicks on
     /// our own window, or the hotkey that stops recording).
-    pub fn start(opts: RecordOptions, keep: impl Fn(&InputEvent) -> bool + Send + 'static) -> Self {
+    /// `on_progress(steps)` receives the macro-so-far whenever something new
+    /// was recorded (at most every 150ms), for the live view.
+    pub fn start(
+        opts: RecordOptions,
+        keep: impl Fn(&InputEvent) -> bool + Send + 'static,
+        mut on_progress: impl FnMut(&[Step]) + Send + 'static,
+    ) -> Self {
         let rx = crate::hooks::subscribe(opts.record_moves);
         let (stop, stop_rx) = crossbeam_channel::bounded::<()>(1);
         let thread = std::thread::Builder::new()
             .name("recorder".into())
             .spawn(move || {
                 let mut events = Vec::new();
+                let mut dirty = false;
+                let mut last_progress = Instant::now();
                 loop {
                     crossbeam_channel::select! {
                         recv(rx) -> ev => match ev {
-                            Ok(ev) if !ev.ours && keep(&ev) => events.push(ev),
+                            Ok(ev) if !ev.ours && keep(&ev) => {
+                                events.push(ev);
+                                dirty = true;
+                            }
                             Ok(_) => {}
                             Err(_) => break,
                         },
                         recv(stop_rx) -> _ => break,
+                        default(PROGRESS_EVERY) => {}
+                    }
+                    if dirty && last_progress.elapsed() >= PROGRESS_EVERY {
+                        on_progress(&events_to_steps(&events, &opts));
+                        dirty = false;
+                        last_progress = Instant::now();
                     }
                 }
                 events

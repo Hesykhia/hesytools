@@ -155,6 +155,7 @@ export interface Settings {
   panicHotkey: string | null;
   recordHotkey: string | null;
   record: RecordOptions;
+  recordingOverlay: boolean;
   webhook: WebhookSettings;
   watches: WatchRule[];
 }
@@ -183,6 +184,8 @@ export const api = {
   cancelPick: () => invoke<void>("cancel_pick"),
   clickerToggle: () => invoke<boolean>("clicker_toggle"),
   clickerStatus: () => invoke<ClickerStatus>("clicker_status"),
+  setRecordingOverlay: (on: boolean) => invoke<void>("set_recording_overlay", { on }),
+  screenLayout: () => invoke<Region[]>("screen_layout"),
   setRecordOptions: (options: RecordOptions) => invoke<void>("set_record_options", { options }),
   listMacros: () => invoke<Macro[]>("list_macros"),
   saveMacro: (entry: Macro) => invoke<Macro>("save_macro", { entry }),
@@ -242,4 +245,9 @@ export function onWatchHit(cb: (id: string) => void): Promise<UnlistenFn> {
 
 export function onSettingsChanged(cb: (s: Settings) => void): Promise<UnlistenFn> {
   return listen<Settings>("settings-changed", (e) => cb(e.payload));
+}
+
+/** The macro-so-far while recording (about 6 times a second). */
+export function onRecordingProgress(cb: (steps: Step[]) => void): Promise<UnlistenFn> {
+  return listen<Step[]>("recording-progress", (e) => cb(e.payload));
 }

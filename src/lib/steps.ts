@@ -115,6 +115,34 @@ export function macroSummary(m: Macro): string {
   return parts.join(" · ");
 }
 
+/** One readable line per step, e.g. "Left click at 940, 494". */
+export function describe(s: Step): string {
+  switch (s.type) {
+    case "key": {
+      const verb = { tap: "Press", down: "Hold down", up: "Release" }[s.action];
+      return `${verb} ${s.key}`;
+    }
+    case "click": {
+      const what = s.action === "tap" ? BUTTON_LABEL[s.button] : `${s.action === "down" ? "Hold" : "Release"} ${BUTTON_LABEL[s.button]}`;
+      return s.at ? `${what} at ${s.at[0]}, ${s.at[1]}` : what;
+    }
+    case "move":
+      return `Move mouse to ${s.x}, ${s.y}`;
+    case "path":
+      return `Mouse movement · ${formatMs(s.points.at(-1)?.t ?? 0)}`;
+    case "scroll":
+      return `Scroll ${s.amount > 0 ? "up" : "down"} ${Math.abs(s.amount) / 120}`;
+    case "wait":
+      return `Wait ${formatMs(s.ms)}`;
+    case "text":
+      return `Type “${s.text}”`;
+    case "repeat":
+      return `Repeat ${s.times || "forever"}`;
+    case "waitFor":
+      return "Wait for the screen";
+  }
+}
+
 /** The first few things a macro does, for card previews. */
 export function preview(steps: Step[], max = 4): { type: StepType; text: string }[] {
   return steps

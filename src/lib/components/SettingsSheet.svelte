@@ -99,6 +99,23 @@
           </div>
           <HotkeyButton value={settings.recordHotkey} onchange={(v) => setGlobalHotkey("record", v)} />
         </div>
+        <div class="row second">
+          <span class="icon rec">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="14" rx="2" /><path d="M14 8h4M14 11h4" /></svg>
+          </span>
+          <div class="text">
+            <b>Recording overlay</b>
+            <small>A small always-on-top panel showing each step live while you record, even over games</small>
+          </div>
+          <Toggle
+            checked={settings.recordingOverlay}
+            onchange={async (v) => {
+              await api.setRecordingOverlay(v);
+              settings.recordingOverlay = v;
+            }}
+            label="Recording overlay"
+          />
+        </div>
       </div>
 
       <div class="group">

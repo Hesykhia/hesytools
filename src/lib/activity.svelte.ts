@@ -7,6 +7,7 @@ import {
   onMacroState,
   onMacroStep,
   onRecordingFinished,
+  onRecordingProgress,
   onRecordingState,
   type Macro,
   type Step,
@@ -21,6 +22,8 @@ export const activity = $state({
   iteration: 0,
   recording: false,
   recordingSince: 0,
+  /** Steps captured so far in the current recording, for the live view. */
+  liveSteps: [] as Step[],
   /** Macro the editor should open (set after a recording finishes). */
   openId: null as string | null,
 });
@@ -45,7 +48,13 @@ export async function initActivity(): Promise<() => void> {
     }),
     onRecordingState((r) => {
       activity.recording = r;
-      if (r) activity.recordingSince = Date.now();
+      if (r) {
+        activity.recordingSince = Date.now();
+        activity.liveSteps = [];
+      }
+    }),
+    onRecordingProgress((steps) => {
+      activity.liveSteps = steps;
     }),
     onRecordingFinished(saveRecording),
   ]);
