@@ -180,9 +180,8 @@
     border-radius: 999px;
     font-size: 13px;
     font-weight: 550;
-    background: rgba(28, 27, 38, 0.92);
+    background: #1c1b26;
     border: 1px solid var(--stroke-strong);
-    backdrop-filter: blur(20px);
     box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.7);
     animation: toast-in 350ms var(--ease-smooth-out) both;
   }

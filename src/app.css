@@ -124,10 +124,11 @@ input[type="number"]::-webkit-inner-spin-button {
 
 /* Frosted glass surface used by cards, popovers and sheets. */
 .glass {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.02));
+  /* Deliberately no backdrop-filter: blurring an animated background
+     every frame made WebView2 flicker. A tinted fill reads the same. */
+  background: linear-gradient(180deg, rgba(30, 28, 44, 0.72), rgba(16, 15, 24, 0.78));
   border: 1px solid var(--stroke);
   border-radius: var(--radius-l);
-  backdrop-filter: blur(24px) saturate(140%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
     0 20px 50px -20px rgba(0, 0, 0, 0.6);

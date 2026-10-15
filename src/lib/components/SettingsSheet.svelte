@@ -143,8 +143,7 @@
     z-index: 50;
     display: grid;
     place-items: center;
-    background: rgba(4, 4, 8, 0.55);
-    backdrop-filter: blur(6px);
+    background: rgba(4, 4, 8, 0.7);
     opacity: 0;
     transition: opacity 250ms var(--ease-smooth-out);
   }

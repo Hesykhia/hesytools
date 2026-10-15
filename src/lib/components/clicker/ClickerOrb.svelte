@@ -73,11 +73,10 @@
 
   .halo {
     position: absolute;
-    inset: 18px;
+    inset: -40px;
     border-radius: 50%;
-    background: radial-gradient(circle, var(--glow), transparent 70%);
-    filter: blur(30px);
-    opacity: 0.8;
+    background: radial-gradient(circle, var(--glow) 0%, transparent 62%);
+    opacity: 0.7;
     transition:
       opacity 400ms var(--ease-smooth-out),
       background 600ms var(--ease-in-out);
@@ -104,10 +103,14 @@
     -webkit-mask-composite: xor;
     mask-composite: exclude;
     opacity: 0.9;
-    animation: spin 14s linear infinite;
+    transition: transform 600ms var(--ease-smooth-out);
   }
+  .orb:hover .ring {
+    transform: rotate(40deg);
+  }
+  /* Continuous motion only while actually clicking; idle draws nothing. */
   .running .ring {
-    animation-duration: 2.2s;
+    animation: spin 2.2s linear infinite;
     padding: 3px;
   }
 
@@ -195,8 +198,7 @@
   }
   @keyframes breathe {
     50% {
-      opacity: 0.55;
-      transform: scale(0.94);
+      opacity: 0.45;
     }
   }
   @keyframes sonar {

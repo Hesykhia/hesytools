@@ -150,9 +150,12 @@
     position: absolute;
     left: 0;
     right: 0;
+    top: 0;
     height: 40px;
     background: linear-gradient(180deg, transparent, rgba(56, 214, 255, 0.22), transparent);
-    animation: scan 2.6s ease-in-out infinite;
+    transform: translateY(-40px);
+    /* A short demo, then it rests (no endless redraws while idle). */
+    animation: scan 2.6s ease-in-out 4;
   }
   .readout {
     margin-top: 12px;
@@ -186,7 +189,7 @@
     align-self: center;
     background: var(--mint) !important;
     box-shadow: 0 0 10px var(--mint);
-    animation: blink 1.4s ease-in-out infinite;
+    animation: blink 1.4s ease-in-out 4;
   }
   .features {
     display: grid;
@@ -202,22 +205,21 @@
   }
   .glow {
     position: absolute;
-    width: 160px;
-    height: 160px;
-    top: -90px;
-    right: -60px;
+    width: 260px;
+    height: 260px;
+    top: -150px;
+    right: -110px;
     border-radius: 50%;
-    filter: blur(40px);
-    opacity: 0.5;
+    opacity: 0.35;
   }
   .violet .glow {
-    background: var(--violet);
+    background: radial-gradient(circle, var(--violet), transparent 65%);
   }
   .pink .glow {
-    background: var(--pink);
+    background: radial-gradient(circle, var(--pink), transparent 65%);
   }
   .cyan .glow {
-    background: var(--cyan);
+    background: radial-gradient(circle, var(--cyan), transparent 65%);
   }
   .feature h3 {
     position: relative;
@@ -232,10 +234,10 @@
   }
   @keyframes scan {
     0% {
-      top: -40px;
+      transform: translateY(-40px);
     }
     100% {
-      top: 120px;
+      transform: translateY(120px);
     }
   }
   @keyframes blink {
