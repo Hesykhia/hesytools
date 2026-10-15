@@ -190,6 +190,8 @@ export const api = {
   listMacros: () => invoke<Macro[]>("list_macros"),
   saveMacro: (entry: Macro) => invoke<Macro>("save_macro", { entry }),
   deleteMacro: (id: string) => invoke<void>("delete_macro", { id }),
+  /** Old hesytools v4 macro files as [file name, JSON text] pairs. */
+  importMacros: (files: [string, string][]) => invoke<Macro[]>("import_macros", { files }),
   playMacro: (id: string) => invoke<void>("play_macro", { id }),
   stopMacro: () => invoke<void>("stop_macro"),
   activityStatus: () => invoke<ActivityStatus>("activity_status"),

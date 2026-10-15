@@ -33,7 +33,7 @@
       <h3>Record your first macro</h3>
       <p>
         Hit <b>Record</b>, switch to your game or app and play normally. hesytools turns your keys, clicks and timing
-        into steps you can edit, loop and speed up.
+        into steps you can edit, loop and speed up. Old hesytools macros can be brought over with <b>Import</b>.
       </p>
     </div>
   </div>

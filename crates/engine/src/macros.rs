@@ -286,7 +286,7 @@ pub fn events_to_steps(events: &[InputEvent], opts: &RecordOptions) -> Vec<Step>
 
 /// `Down X, (Wait), Up X` → `Tap X` holding for the wait. Holds that span
 /// other actions (W held while clicking) stay as separate Down/Up steps.
-fn merge_taps(steps: Vec<Step>) -> Vec<Step> {
+pub(crate) fn merge_taps(steps: Vec<Step>) -> Vec<Step> {
     let mut out: Vec<Step> = Vec::with_capacity(steps.len());
     let mut i = 0;
     while i < steps.len() {

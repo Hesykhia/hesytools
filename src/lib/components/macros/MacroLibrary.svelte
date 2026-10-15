@@ -23,6 +23,21 @@
     settings.record = options;
   }
 
+  let fileInput: HTMLInputElement;
+  async function importFiles(e: Event) {
+    const files = [...((e.currentTarget as HTMLInputElement).files ?? [])];
+    (e.currentTarget as HTMLInputElement).value = "";
+    if (files.length === 0) return;
+    try {
+      const pairs = await Promise.all(files.map(async (f) => [f.name, await f.text()] as [string, string]));
+      const imported = await api.importMacros(pairs);
+      imported.reverse().forEach(upsertMacro);
+      toast(imported.length === 1 ? `Imported “${imported[0].name}”` : `Imported ${imported.length} macros`);
+    } catch (err) {
+      toast(errorText(err), "error", 7000);
+    }
+  }
+
   async function blank() {
     const saved = await api.saveMacro({ id: "", name: "New macro", steps: [], speed: 1, repeat: 1, hotkey: null, updatedAt: 0 });
     upsertMacro(saved);
@@ -41,6 +56,8 @@
         <Toggle checked={settings.record.recordMoves} onchange={setMoves} label="Record mouse movement" />
         <span>Record mouse movement</span>
       </label>
+      <button class="btn" onclick={() => fileInput.click()} title="Import macros from the old hesytools (v4 .json files)">Import</button>
+      <input bind:this={fileInput} type="file" accept=".json,application/json" multiple hidden onchange={importFiles} />
       <button class="btn" onclick={blank}>New</button>
       <button class="btn rec" class:on={activity.recording} onclick={record}>
         <span class="dot"></span>{activity.recording ? "Stop recording" : "Record"}

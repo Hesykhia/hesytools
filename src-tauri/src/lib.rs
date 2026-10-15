@@ -542,6 +542,35 @@ fn save_macro(a: AppState, mut entry: Macro) -> Result<Macro, String> {
     Ok(entry)
 }
 
+/// Import old hesytools v4 macro files: (file name, JSON contents) pairs.
+#[tauri::command]
+fn import_macros(a: AppState, files: Vec<(String, String)>) -> Result<Vec<Macro>, String> {
+    let mut imported = Vec::new();
+    let mut errors = Vec::new();
+    for (file, json) in files {
+        let name = file.trim_end_matches(".json").to_string();
+        match engine::import::import_v4(&json, &name) {
+            Ok(mut m) => {
+                m.id = macro_store::new_id();
+                // Keep the old hotkey only if it's still free.
+                if m.hotkey.is_some_and(|h| hotkey_owner(&a, h, "").is_some()) {
+                    m.hotkey = None;
+                }
+                m.updated_at = macro_store::now_ms();
+                a.macro_store.save(&m)?;
+                a.macros.lock().insert(0, m.clone());
+                imported.push(m);
+            }
+            Err(e) => errors.push(format!("{file}: {e}")),
+        }
+    }
+    apply_hotkeys(&a);
+    if imported.is_empty() && !errors.is_empty() {
+        return Err(errors.join("\n"));
+    }
+    Ok(imported)
+}
+
 #[tauri::command]
 fn delete_macro(a: AppState, id: String) -> Result<(), String> {
     if a.playing_id().as_deref() == Some(id.as_str()) {
@@ -787,6 +816,7 @@ pub fn run() {
             list_macros,
             save_macro,
             delete_macro,
+            import_macros,
             play_macro,
             stop_macro,
             activity_status,
