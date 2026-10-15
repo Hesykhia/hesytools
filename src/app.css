@@ -1,21 +1,54 @@
+@import "@fontsource-variable/inter";
+
 :root {
-  --bg: #0e0f13;
-  --panel: #16181e;
-  --panel-2: #1c1f27;
-  --line: #262a34;
-  --text: #e6e8ee;
-  --muted: #8b91a1;
-  --accent: #7c5cff;
-  --accent-2: #9a82ff;
-  --good: #3ecf8e;
-  --warn: #f5a524;
-  --bad: #f2555a;
-  --radius: 10px;
+  /* Surfaces */
+  --bg: #08080c;
+  --glass: rgba(255, 255, 255, 0.035);
+  --glass-strong: rgba(255, 255, 255, 0.06);
+  --glass-hover: rgba(255, 255, 255, 0.08);
+  --stroke: rgba(255, 255, 255, 0.08);
+  --stroke-strong: rgba(255, 255, 255, 0.14);
+  --popover: rgba(22, 22, 30, 0.92);
+
+  /* Text */
+  --text: #f4f4f8;
+  --text-2: rgba(244, 244, 248, 0.66);
+  --text-3: rgba(244, 244, 248, 0.4);
+
+  /* Accents: idle = violet, running = mint */
+  --violet: #8b6cff;
+  --violet-2: #b49cff;
+  --pink: #ff6ec7;
+  --blue: #5b8cff;
+  --mint: #3df2b0;
+  --cyan: #38d6ff;
+  --amber: #ffbf5c;
+  --red: #ff5c70;
+
+  --radius-s: 10px;
+  --radius-m: 14px;
+  --radius-l: 22px;
+
+  /* Motion tokens (transitions.dev scale) */
+  --duration-stagger: 40ms;
+  --duration-micro: 80ms;
+  --duration-quick: 150ms;
+  --duration-fast: 250ms;
+  --duration-medium: 350ms;
+  --duration-slow: 400ms;
+  --duration-very-slow: 500ms;
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.36, 0.64, 1);
+  --ease-in-out: ease-in-out;
+
   color-scheme: dark;
-  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-family: "Inter Variable", "Segoe UI Variable Text", system-ui, sans-serif;
+  font-feature-settings: "cv11", "ss01", "ss03";
   font-size: 14px;
+  letter-spacing: -0.006em;
   color: var(--text);
   background: var(--bg);
+  -webkit-font-smoothing: antialiased;
 }
 
 * {
@@ -28,13 +61,14 @@ body {
   height: 100%;
   overflow: hidden;
   user-select: none;
+  cursor: default;
 }
 
 h1,
 h2,
-h3 {
+h3,
+p {
   margin: 0;
-  font-weight: 600;
 }
 
 button,
@@ -42,99 +76,115 @@ input,
 select {
   font: inherit;
   color: inherit;
+  letter-spacing: inherit;
 }
 
 button {
   cursor: pointer;
-  border: 1px solid var(--line);
-  background: var(--panel-2);
-  border-radius: 8px;
-  padding: 6px 12px;
-  transition: background 0.12s, border-color 0.12s;
-}
-button:hover:not(:disabled) {
-  border-color: #353a47;
-  background: #232733;
-}
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: white;
-}
-button.primary:hover:not(:disabled) {
-  background: var(--accent-2);
-  border-color: var(--accent-2);
-}
-button.danger {
-  background: var(--bad);
-  border-color: var(--bad);
-  color: white;
+  border: none;
+  background: none;
+  padding: 0;
 }
 
-input[type="text"],
 input[type="number"],
-input[type="url"],
-select {
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 6px 10px;
+input[type="text"],
+input[type="url"] {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-s);
+  padding: 9px 12px;
   outline: none;
   min-width: 0;
   user-select: text;
+  transition:
+    border-color var(--duration-quick) var(--ease-smooth-out),
+    box-shadow var(--duration-quick) var(--ease-smooth-out);
 }
-input:focus,
-select:focus {
-  border-color: var(--accent);
+input:focus {
+  border-color: rgba(139, 108, 255, 0.6);
+  box-shadow: 0 0 0 4px rgba(139, 108, 255, 0.15);
 }
-input[type="number"] {
-  width: 90px;
-}
-input[type="checkbox"] {
-  accent-color: var(--accent);
-  width: 16px;
-  height: 16px;
+input[type="number"]::-webkit-inner-spin-button {
+  display: none;
 }
 
-.card {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 18px;
+::selection {
+  background: rgba(139, 108, 255, 0.4);
 }
 
-.muted {
-  color: var(--muted);
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 99px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
 }
 
-.row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+/* Frosted glass surface used by cards, popovers and sheets. */
+.glass {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-l);
+  backdrop-filter: blur(24px) saturate(140%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 20px 50px -20px rgba(0, 0, 0, 0.6);
 }
 
-/* Segmented control */
-.seg {
+/* Buttons */
+.btn {
   display: inline-flex;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 2px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-weight: 550;
+  background: var(--glass-strong);
+  border: 1px solid var(--stroke);
+  transition:
+    background var(--duration-quick) var(--ease-smooth-out),
+    transform var(--duration-quick) var(--ease-smooth-out),
+    border-color var(--duration-quick) var(--ease-smooth-out);
 }
-.seg button {
-  border: none;
-  background: transparent;
-  padding: 4px 12px;
-  border-radius: 6px;
-  color: var(--muted);
+.btn:hover:not(:disabled) {
+  background: var(--glass-hover);
+  border-color: var(--stroke-strong);
 }
-.seg button.on {
-  background: var(--panel-2);
-  color: var(--text);
-  box-shadow: 0 0 0 1px var(--line);
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.btn.primary {
+  background: linear-gradient(180deg, #9a7fff, #7656f5);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow:
+    0 8px 24px -8px rgba(139, 108, 255, 0.7),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.btn.primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #a68eff, #8165ff);
+}
+
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

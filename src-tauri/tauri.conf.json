@@ -14,13 +14,15 @@
       {
         "label": "main",
         "title": "hesytools",
-        "width": 1040,
-        "height": 720,
-        "minWidth": 860,
-        "minHeight": 580,
+        "width": 1000,
+        "height": 700,
+        "minWidth": 880,
+        "minHeight": 620,
         "center": true,
         "theme": "Dark",
-        "backgroundColor": "#0e0f13"
+        "backgroundColor": "#08080c",
+        "decorations": false,
+        "shadow": true
       }
     ],
     "security": {

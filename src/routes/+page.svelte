@@ -1,181 +1,207 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, errorText, onToast, type Settings, type SystemInfo } from "$lib/api";
+  import { api, errorText, onClickerState, onToast, type Settings, type SystemInfo } from "$lib/api";
   import { toast, toasts } from "$lib/toast.svelte";
-  import QuickClicker from "$lib/components/QuickClicker.svelte";
-  import SettingsPanel from "$lib/components/SettingsPanel.svelte";
+  import Aurora from "$lib/components/ui/Aurora.svelte";
+  import TitleBar from "$lib/components/ui/TitleBar.svelte";
+  import Tabs from "$lib/components/ui/Tabs.svelte";
+  import QuickClicker from "$lib/components/clicker/QuickClicker.svelte";
+  import MacrosEmpty from "$lib/components/MacrosEmpty.svelte";
+  import WatchPreview from "$lib/components/WatchPreview.svelte";
+  import SettingsSheet from "$lib/components/SettingsSheet.svelte";
 
-  type Page = "macros" | "watch" | "settings";
-  const PAGES: { id: Page; label: string; icon: string }[] = [
-    { id: "macros", label: "Macros", icon: "M4 6h16M4 12h10M4 18h7" },
-    { id: "watch", label: "Screen Watch", icon: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zm10 3a3 3 0 100-6 3 3 0 000 6z" },
-    { id: "settings", label: "Settings", icon: "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" },
-  ];
+  type Page = "macros" | "watch";
+  const ORDER: Page[] = ["macros", "watch"];
 
   let page = $state<Page>("macros");
+  let direction = $state(1);
   let settings = $state<Settings | null>(null);
   let info = $state<SystemInfo | null>(null);
   let loadError = $state("");
+  let running = $state(false);
+  let settingsOpen = $state(false);
+
+  function go(p: Page) {
+    direction = ORDER.indexOf(p) > ORDER.indexOf(page) ? 1 : -1;
+    page = p;
+  }
 
   onMount(() => {
     api.getSettings().then((s) => (settings = s)).catch((e) => (loadError = errorText(e)));
     api.systemInfo().then((i) => (info = i));
-    const un = onToast((m) => toast(m));
-    return () => un.then((f) => f());
+    api.clickerStatus().then((s) => (running = s.running));
+    // Keep the glow in sync even while the clicker panel isn't on screen.
+    const unlisteners = [onToast((m) => toast(m)), onClickerState((r) => (running = r))];
+    return () => unlisteners.forEach((u) => u.then((f) => f()));
   });
 </script>
 
+<Aurora active={running} />
+
 <div class="app">
-  <nav>
-    <div class="brand">hesy<span>tools</span></div>
-    {#each PAGES as p}
-      <button class="nav" class:on={page === p.id} onclick={() => (page = p.id)}>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d={p.icon} /></svg>
-        {p.label}
+  <TitleBar>
+    <div class="nav">
+      <Tabs
+        value={page}
+        onchange={go}
+        options={[
+          { value: "macros", label: "Macros", dot: running },
+          { value: "watch", label: "Screen Watch" },
+        ]}
+      />
+      <button class="gear" aria-label="Settings" onclick={() => (settingsOpen = true)}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
       </button>
-    {/each}
-    <div class="spacer"></div>
-    {#if info?.elevated}<div class="badge">Admin</div>{/if}
-    {#if settings?.panicHotkey}
-      <div class="panic muted">Panic: <b>{settings.panicHotkey}</b></div>
-    {/if}
-  </nav>
+    </div>
+  </TitleBar>
 
   <main>
     {#if loadError}
-      <div class="card">Couldn't load settings: {loadError}</div>
-    {:else if !settings}
-      <div class="muted">Loading…</div>
-    {:else if page === "macros"}
-      <div class="stack">
-        <QuickClicker bind:settings />
-        <section class="card soon">
-          <h2>Macros</h2>
-          <p class="muted">
-            Record, edit and replay sequences of keys, clicks and waits, with loops, conditions and "wait until text appears on
-            screen" steps. Coming in the next phase.
-          </p>
-        </section>
-      </div>
-    {:else if page === "watch"}
-      <section class="card soon">
-        <h2>Screen Watch</h2>
-        <p class="muted">
-          Pick a region of the screen and react to what's in it: text (OCR), numbers, pixel colours or images. It includes a
-          live viewer of exactly what's being read. It's built on Windows' own OCR engine and only re-reads when the region
-          actually changes, so it's cheap on CPU.
-        </p>
-      </section>
-    {:else}
-      <SettingsPanel bind:settings {info} />
+      <div class="glass error">Couldn't load settings: {loadError}</div>
+    {:else if settings}
+      {#key page}
+        <div class="page" style:--dir={direction}>
+          {#if page === "macros"}
+            <QuickClicker bind:settings bind:running />
+            <MacrosEmpty />
+          {:else}
+            <WatchPreview />
+          {/if}
+          {#if settings.panicHotkey}
+            <div class="panic">
+              <span class="stop"></span>Panic key <kbd>{settings.panicHotkey}</kbd> stops everything
+            </div>
+          {/if}
+        </div>
+      {/key}
     {/if}
   </main>
 
-  <div class="toasts">
-    {#each toasts as t (t.id)}
-      <div class="toast" class:error={t.kind === "error"}>{t.text}</div>
-    {/each}
-  </div>
+</div>
+
+{#if settings}
+  <SettingsSheet bind:open={settingsOpen} bind:settings {info} />
+{/if}
+
+<div class="toasts">
+  {#each toasts as t (t.id)}
+    <div class="toast" class:error={t.kind === "error"}>{t.text}</div>
+  {/each}
 </div>
 
 <style>
   .app {
-    display: grid;
-    grid-template-columns: 200px 1fr;
+    position: relative;
+    z-index: 1;
     height: 100vh;
-  }
-  nav {
-    background: var(--panel);
-    border-right: 1px solid var(--line);
-    padding: 18px 10px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
-  }
-  .brand {
-    font-size: 19px;
-    font-weight: 700;
-    padding: 0 10px 18px;
-    letter-spacing: -0.3px;
-  }
-  .brand span {
-    color: var(--accent-2);
   }
   .nav {
     display: flex;
     align-items: center;
-    gap: 10px;
-    border: none;
-    background: transparent;
-    text-align: left;
-    padding: 9px 10px;
-    color: var(--muted);
+    gap: 6px;
   }
-  .nav:hover {
-    background: var(--panel-2) !important;
+  .gear {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    color: var(--text-3);
+    border: 1px solid var(--stroke);
+    background: rgba(0, 0, 0, 0.28);
+    transition:
+      color var(--duration-quick) var(--ease-smooth-out),
+      transform 400ms var(--ease-smooth-out);
+  }
+  .gear:hover {
     color: var(--text);
-  }
-  .nav.on {
-    background: var(--panel-2);
-    color: var(--text);
-  }
-  .nav.on svg {
-    color: var(--accent-2);
-  }
-  .spacer {
-    flex: 1;
-  }
-  .badge {
-    align-self: flex-start;
-    margin: 0 10px 8px;
-    font-size: 11px;
-    color: var(--warn);
-    border: 1px solid rgba(245, 165, 36, 0.4);
-    border-radius: 999px;
-    padding: 2px 8px;
-  }
-  .panic {
-    font-size: 12px;
-    padding: 0 10px;
+    transform: rotate(45deg);
   }
   main {
+    flex: 1;
     overflow-y: auto;
-    padding: 24px;
+    padding: 8px 28px 22px;
   }
-  .stack {
+  .page {
+    max-width: 940px;
+    margin: 0 auto;
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    max-width: 900px;
+    gap: 26px;
+    animation: page-in 250ms var(--ease-smooth-out) both;
   }
-  main > :global(.stack),
-  main > .card {
-    max-width: 900px;
+  .error {
+    padding: 20px;
   }
-  .soon p {
-    margin: 8px 0 0;
-    line-height: 1.5;
+  .panic {
+    align-self: center;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: var(--text-3);
+  }
+  .panic kbd {
+    font-family: inherit;
+    font-weight: 650;
+    font-size: 11px;
+    color: var(--text-2);
+    padding: 1px 6px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid var(--stroke);
+  }
+  .stop {
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    background: var(--red);
+    opacity: 0.8;
   }
   .toasts {
     position: fixed;
-    right: 18px;
-    bottom: 18px;
+    left: 50%;
+    bottom: 22px;
+    translate: -50% 0;
+    z-index: 60;
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: 8px;
-    z-index: 10;
+    pointer-events: none;
   }
   .toast {
-    background: var(--panel-2);
-    border: 1px solid var(--line);
-    border-left: 3px solid var(--accent);
-    border-radius: 8px;
-    padding: 10px 14px;
-    max-width: 380px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    padding: 10px 18px;
+    border-radius: 999px;
     font-size: 13px;
+    font-weight: 550;
+    background: rgba(28, 27, 38, 0.92);
+    border: 1px solid var(--stroke-strong);
+    backdrop-filter: blur(20px);
+    box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.7);
+    animation: toast-in 350ms var(--ease-smooth-out) both;
   }
   .toast.error {
-    border-left-color: var(--bad);
+    border-color: rgba(255, 92, 112, 0.5);
+    color: #ffc2ca;
+  }
+  @keyframes page-in {
+    from {
+      opacity: 0;
+      transform: translateX(calc(var(--dir) * 8px));
+      filter: blur(3px);
+    }
+  }
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(16px) scale(0.97);
+      filter: blur(2px);
+    }
   }
 </style>
