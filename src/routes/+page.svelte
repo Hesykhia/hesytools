@@ -21,14 +21,16 @@
   import RecordingCard from "$lib/components/macros/RecordingCard.svelte";
   import { activity, initActivity } from "$lib/activity.svelte";
   import WatchPage from "$lib/components/watch/WatchPage.svelte";
+  import DevPage from "$lib/components/dev/DevPage.svelte";
+  import { dev, initDev } from "$lib/dev.svelte";
   import SettingsPage from "$lib/components/SettingsPage.svelte";
   import UpdateCard from "$lib/components/UpdateCard.svelte";
   import { startAutoCheck } from "$lib/update.svelte";
   import { initShutdown, remaining, shutdown } from "$lib/shutdown.svelte";
   import { forwardWindowInput } from "$lib/windowInput";
 
-  type Page = "macros" | "watch" | "settings";
-  const ORDER: Page[] = ["macros", "watch", "settings"];
+  type Page = "macros" | "watch" | "dev" | "settings";
+  const ORDER: Page[] = ["macros", "watch", "dev", "settings"];
 
   let page = $state<Page>("macros");
   let direction = $state(1);
@@ -76,6 +78,7 @@
       onClickerState((r) => (running = r)),
       initActivity(),
       initShutdown(),
+      initDev(),
       // The backend changed something itself (a hotkey moved, panic turned
       // watches off): pick it up.
       onSettingsChanged((s) => {
@@ -109,6 +112,7 @@
         options={[
           { value: "macros", label: "Macro", dot: busy },
           { value: "watch", label: "Screen Watch" },
+          ...(dev.unlocked ? [{ value: "dev" as Page, label: "Dev" }] : []),
         ]}
       />
 
@@ -150,6 +154,8 @@
             </div>
           {:else if page === "watch"}
             <WatchPage bind:settings />
+          {:else if page === "dev" && dev.unlocked}
+            <DevPage bind:settings />
           {:else}
             <SettingsPage bind:settings {info} />
           {/if}

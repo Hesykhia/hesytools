@@ -80,6 +80,9 @@ function fakeFrame(maxWidth: number): ArrayBuffer {
 
 let viewerChecks = 0;
 let shutdownTimer: { endsAt: number; restart: boolean } | null = null;
+let devState: { unlocked: boolean; name: string | null } = new URLSearchParams(location.search).get("scene") === "dev"
+  ? { unlocked: true, name: "hesy" }
+  : { unlocked: false, name: null };
 
 let macros: Macro[] = [
   {
@@ -156,12 +159,12 @@ let recording = false;
 
 function clickerStatus() {
   if (clicker.running) clicker.clicks = Math.floor((Date.now() - clicker.started) / clicker.intervalMs);
-  return { running: clicker.running, clicks: clicker.clicks, blocked: 0 };
+  return { running: clicker.running, clicks: clicker.clicks, blocked: 0, waiting: false };
 }
 
 /**
  * `?scene=` jumps straight to a state, for screenshots:
- * editor:<id>, playing:<id> (editor with live playback), recording, watch[:n], settings.
+ * editor:<id>, playing:<id> (editor with live playback), recording, watch[:n], settings, dev.
  */
 async function applyScene() {
   const scene = new URLSearchParams(location.search).get("scene");
@@ -183,6 +186,9 @@ async function applyScene() {
   if (kind === "clicker") {
     // clicker:<n> opens the nth chip's panel in the autoclicker sentence
     setTimeout(() => (document.querySelectorAll<HTMLButtonElement>(".panel .sentence .chip")[Number(id ?? 0)] ?? null)?.click(), 200);
+  }
+  if (kind === "dev") {
+    setTimeout(() => (document.querySelector('[data-value="dev"]') as HTMLButtonElement | null)?.click(), 200);
   }
   if (kind === "settings") {
     (document.querySelector('[aria-label="Settings"]') as HTMLButtonElement | null)?.click();
@@ -288,6 +294,28 @@ export function install() {
             width: 320,
             height: 80,
           };
+        case "dev_status":
+          return devState;
+        case "set_dev_code":
+          devState = a.code ? { unlocked: true, name: "hesy" } : { unlocked: false, name: null };
+          return devState;
+        case "set_soul_config":
+          settings.soul = a.config;
+          return structuredClone(settings);
+        case "soul_report":
+          return devState.unlocked
+            ? {
+                at: Date.now() - 400,
+                data: {
+                  status: { souls: "33.88 trillion", sps: "312.32 million", perClick: "1,748", pending: "+19" },
+                  stats: { favors: 42, crystals: 3, gens: 318, upgrades: 57, rituals: 2, orbClicks: 18520, last: "Bought Golden Idol" },
+                  ritual: { can: true, pending: 19, bonus: 24, pendingBonus: 38 },
+                },
+              }
+            : null;
+        case "install_soul_helper":
+        case "open_link":
+          return;
         case "list_windows":
           return [
             { exe: "RobloxPlayerBeta.exe", title: "Roblox", x: 0, y: 0, w: 1920, h: 1080, handle: 1 },

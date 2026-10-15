@@ -2,6 +2,14 @@
 //! (admin) window, so automating an elevated app requires running elevated too.
 
 use windows::Win32::UI::Shell::{IsUserAnAdmin, ShellExecuteW};
+
+/// Open a link in the default browser.
+pub fn open_url(url: &str) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    use windows::core::{HSTRING, w};
+    let r = unsafe { ShellExecuteW(None, w!("open"), &HSTRING::from(url), None, None, SW_SHOWNORMAL) };
+    if r.0 as isize > 32 { Ok(()) } else { Err("Couldn't open the browser".into()) }
+}
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 use windows::core::{HSTRING, w};
 

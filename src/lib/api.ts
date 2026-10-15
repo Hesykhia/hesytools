@@ -71,6 +71,35 @@ export interface WindowInfo extends WindowTarget {
   handle: number;
 }
 
+export interface DevStatus {
+  unlocked: boolean;
+  /** Who the access code was made for. */
+  name: string | null;
+}
+
+export type RitualMode = "off" | "worth" | "shards" | "always";
+
+export interface SoulConfig {
+  enabled: boolean;
+  favors: boolean;
+  crystals: boolean;
+  buyGens: boolean;
+  buyUpgrades: boolean;
+  orb: boolean;
+  orbCps: number;
+  ritual: { mode: RitualMode; worth: number; shards: number };
+}
+
+/** What the browser helper last said (`at` = unix ms). */
+export interface SoulReport {
+  at: number;
+  data: {
+    status?: { souls: string; sps: string; perClick: string; pending: string };
+    stats?: { favors: number; crystals: number; gens: number; upgrades: number; rituals: number; orbClicks: number; last: string };
+    ritual?: { can: boolean; pending: number; bonus: number; pendingBonus: number } | null;
+  };
+}
+
 export interface Region {
   x: number;
   y: number;
@@ -236,6 +265,8 @@ export interface Settings {
   autoCheckUpdates: boolean;
   webhook: WebhookSettings;
   watches: WatchRule[];
+  devCode?: string | null;
+  soul?: SoulConfig;
 }
 
 export interface ClickerStatus {
@@ -316,6 +347,12 @@ export const api = {
   viewerCheck: (id: string, region: Region, condition: Condition, window: WindowTarget | null = null) =>
     invoke<ViewerCheck>("viewer_check", { id, region, condition, window }),
   listWindows: () => invoke<WindowInfo[]>("list_windows"),
+  devStatus: () => invoke<DevStatus>("dev_status"),
+  setDevCode: (code: string) => invoke<DevStatus>("set_dev_code", { code }),
+  setSoulConfig: (config: SoulConfig) => invoke<Settings>("set_soul_config", { config }),
+  soulReport: () => invoke<SoulReport | null>("soul_report"),
+  installSoulHelper: () => invoke<void>("install_soul_helper"),
+  openLink: (url: string) => invoke<void>("open_link", { url }),
   findWindow: (target: WindowTarget) => invoke<WindowInfo | null>("find_window", { target }),
   /** Raw bytes: u32 width, u32 height (little-endian), then RGBA pixels. */
   viewerFrame: (id: string, maxWidth: number) => invoke<ArrayBuffer>("viewer_frame", { id, maxWidth }),
@@ -341,6 +378,10 @@ export function errorText(e: unknown): string {
 
 export function onMacroState(cb: (playingId: string | null) => void): Promise<UnlistenFn> {
   return listen<string | null>("macro-state", (e) => cb(e.payload));
+}
+
+export function onSoulReport(cb: (r: SoulReport) => void): Promise<UnlistenFn> {
+  return listen<SoulReport>("soul-report", (e) => cb(e.payload));
 }
 
 export function onMacroWaiting(cb: (waiting: boolean) => void): Promise<UnlistenFn> {

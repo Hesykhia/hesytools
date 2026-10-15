@@ -11,6 +11,7 @@
   import { checkForUpdates, update } from "$lib/update.svelte";
   import { cancelShutdown, remaining, shutdown, startShutdown } from "$lib/shutdown.svelte";
   import InlineNumber from "./ui/InlineNumber.svelte";
+  import { dev, setDev } from "$lib/dev.svelte";
 
   let { settings = $bindable(), info }: { settings: Settings; info: SystemInfo | null } = $props();
 
@@ -54,6 +55,19 @@
   let shutMinutes = $state(30);
   let shutRestart = $state(false);
   const SHUT_PRESETS = [5, 15, 30, 60, 120];
+
+  // ── Dev access ───────────────────────────────────────────────────────────
+  let devCode = $state("");
+  const unlockDev = () =>
+    run(async () => {
+      setDev(await api.setDevCode(devCode));
+      devCode = "";
+      toast(dev.unlocked ? `Dev tab unlocked for ${dev.name}` : "Code removed");
+    });
+  const lockDev = () =>
+    run(async () => {
+      setDev(await api.setDevCode(""));
+    });
 
   // ── Discord ──────────────────────────────────────────────────────────────
   // svelte-ignore state_referenced_locally
@@ -295,6 +309,22 @@
         </div>
       </section>
 
+      <section class="group glass">
+        <h3>Dev access {#if dev.unlocked}<span class="on">On</span>{/if}</h3>
+        {#if dev.unlocked}
+          <div class="row">
+            <div class="text"><b>Unlocked for {dev.name}</b><small>The Dev tab is next to Macro and Screen Watch.</small></div>
+            <button class="btn" onclick={lockDev}>Remove code</button>
+          </div>
+        {:else}
+          <p class="sub">Have an access code? Paste it here to turn on the Dev tab.</p>
+          <div class="code-line">
+            <input type="text" placeholder="HT-…" bind:value={devCode} spellcheck="false" autocomplete="off" />
+            <button class="btn primary" disabled={!devCode.trim()} onclick={unlockDev}>Unlock</button>
+          </div>
+        {/if}
+      </section>
+
       <section class="group glass about">
         <h3>About &amp; disclaimer</h3>
         <p>
@@ -328,6 +358,17 @@
     color: var(--text-3);
     font-size: 13px;
     margin-top: 3px;
+  }
+  .code-line {
+    display: flex;
+    gap: 8px;
+    padding-top: 4px;
+  }
+  .code-line input {
+    flex: 1;
+    min-width: 0;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 12.5px;
   }
   .cols {
     display: grid;

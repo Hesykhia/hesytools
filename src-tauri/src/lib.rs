@@ -1,5 +1,7 @@
+mod dev;
 mod macro_store;
 mod settings;
+mod soul;
 mod watch_runner;
 
 use engine::capture::Region;
@@ -59,6 +61,94 @@ struct App {
     shutdown: Mutex<Option<ShutdownTimer>>,
     /// Screen watches currently holding macros paused.
     macro_pausers: Mutex<std::collections::HashSet<String>>,
+    /// The Soul Clicker helper's latest report.
+    soul_report: Mutex<Option<soul::SoulReport>>,
+}
+
+// ── Dev tab: access codes + the Soul Clicker helper ─────────────────────────
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DevStatus {
+    unlocked: bool,
+    /// Who the code was made for.
+    name: Option<String>,
+}
+
+fn dev_status_of(s: &Settings) -> DevStatus {
+    let name = s.dev_code.as_deref().and_then(dev::check);
+    DevStatus { unlocked: name.is_some(), name }
+}
+
+struct SoulHost {
+    app: AppHandle,
+}
+
+impl soul::Host for SoulHost {
+    fn token(&self) -> String {
+        self.app.try_state::<Arc<App>>().map(|a| a.settings.lock().helper_token.clone()).unwrap_or_default()
+    }
+    fn config(&self) -> Option<soul::SoulConfig> {
+        let a = self.app.try_state::<Arc<App>>()?;
+        let s = a.settings.lock();
+        dev_status_of(&s).unlocked.then(|| s.soul.clone())
+    }
+    fn report(&self, r: soul::SoulReport) {
+        if let Some(a) = self.app.try_state::<Arc<App>>() {
+            *a.soul_report.lock() = Some(r.clone());
+        }
+        let _ = self.app.emit("soul-report", r);
+    }
+}
+
+#[tauri::command]
+fn dev_status(a: AppState) -> DevStatus {
+    dev_status_of(&a.settings.lock())
+}
+
+/// Save an access code (or clear it with an empty one).
+#[tauri::command]
+fn set_dev_code(a: AppState, code: String) -> Result<DevStatus, String> {
+    let code = code.trim().to_string();
+    if !code.is_empty() && dev::check(&code).is_none() {
+        return Err("That code isn't valid".into());
+    }
+    let s = a.update(|s| s.dev_code = (!code.is_empty()).then_some(code))?;
+    Ok(dev_status_of(&s))
+}
+
+#[tauri::command]
+fn set_soul_config(a: AppState, config: soul::SoulConfig) -> Result<Settings, String> {
+    a.update(|s| s.soul = config)
+}
+
+#[tauri::command]
+fn soul_report(a: AppState) -> Option<soul::SoulReport> {
+    a.soul_report.lock().clone()
+}
+
+/// Open the helper's install page; Violentmonkey picks it up from there.
+#[tauri::command]
+fn install_soul_helper(a: AppState) -> Result<(), String> {
+    if !dev_status_of(&a.settings.lock()).unlocked {
+        return Err("The Dev tab isn't unlocked".into());
+    }
+    elevation::open_url(&soul::install_url())
+}
+
+/// Open a web page in the default browser (https only).
+#[tauri::command]
+fn open_link(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") {
+        return Err("Only web links can be opened".into());
+    }
+    elevation::open_url(&url)
+}
+
+fn new_token() -> String {
+    let mut b = [0u8; 16];
+    let _ = getrandom::fill(&mut b);
+    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 #[derive(Clone, Copy, Serialize)]
@@ -1274,7 +1364,12 @@ pub fn run() {
                 pending_update: Mutex::new(None),
                 shutdown: Mutex::new(None),
                 macro_pausers: Mutex::new(Default::default()),
+                soul_report: Mutex::new(None),
             });
+            if a.settings.lock().helper_token.is_empty() {
+                let _ = a.update(|s| s.helper_token = new_token());
+            }
+            soul::start(Arc::new(SoulHost { app: app.handle().clone() }));
             apply_hotkeys(&a);
             sync_watches(app.handle(), &a);
             app.manage(a);
@@ -1335,6 +1430,12 @@ pub fn run() {
             window_input,
             list_windows,
             find_window,
+            dev_status,
+            set_dev_code,
+            set_soul_config,
+            soul_report,
+            install_soul_helper,
+            open_link,
             pick_point,
             cancel_pick,
             clicker_toggle,

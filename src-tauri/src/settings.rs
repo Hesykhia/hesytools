@@ -151,6 +151,11 @@ pub struct Settings {
     pub auto_check_updates: bool,
     pub webhook: WebhookSettings,
     pub watches: Vec<WatchRule>,
+    /// Signed code that unlocks the Dev tab (see dev.rs).
+    pub dev_code: Option<String>,
+    /// Shared secret between hesytools and its browser helper.
+    pub helper_token: String,
+    pub soul: crate::soul::SoulConfig,
 }
 
 impl Default for Settings {
@@ -168,6 +173,9 @@ impl Default for Settings {
             auto_check_updates: true,
             webhook: WebhookSettings::default(),
             watches: Vec::new(),
+            dev_code: None,
+            helper_token: String::new(),
+            soul: Default::default(),
         }
     }
 }
