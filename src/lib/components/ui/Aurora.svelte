@@ -6,12 +6,13 @@
   // animating huge blurred layers under translucent cards made WebView2
   // recomposite every frame, which flickered and cost GPU/CPU. It also
   // doesn't drift: an idle app should draw nothing at all.
-  let { active = false }: { active?: boolean } = $props();
+  let { mode = "idle" }: { mode?: "idle" | "live" | "rec" } = $props();
 </script>
 
 <div class="aurora" aria-hidden="true">
-  <div class="layer idle" class:off={active}></div>
-  <div class="layer live" class:off={!active}></div>
+  <div class="layer idle" class:off={mode !== "idle"}></div>
+  <div class="layer live" class:off={mode !== "live"}></div>
+  <div class="layer rec" class:off={mode !== "rec"}></div>
   <div class="vignette"></div>
 </div>
 
@@ -45,6 +46,12 @@
       radial-gradient(38% 30% at 30% 18%, rgba(61, 242, 176, 0.24), transparent 70%),
       radial-gradient(34% 28% at 72% 14%, rgba(56, 214, 255, 0.2), transparent 70%),
       radial-gradient(30% 26% at 55% 92%, rgba(61, 242, 176, 0.12), transparent 70%);
+  }
+  .rec {
+    background:
+      radial-gradient(38% 30% at 30% 18%, rgba(255, 92, 112, 0.26), transparent 70%),
+      radial-gradient(34% 28% at 72% 14%, rgba(255, 110, 199, 0.18), transparent 70%),
+      radial-gradient(30% 26% at 55% 92%, rgba(255, 92, 112, 0.1), transparent 70%);
   }
   .vignette {
     position: absolute;

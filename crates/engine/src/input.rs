@@ -68,6 +68,26 @@ pub fn key_event(key: Key, down: bool) -> INPUT {
     }
 }
 
+/// One UTF-16 unit typed as a character, independent of keyboard layout.
+pub fn unicode_event(unit: u16, down: bool) -> INPUT {
+    let mut flags = KEYEVENTF_UNICODE;
+    if !down {
+        flags |= KEYEVENTF_KEYUP;
+    }
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(0),
+                wScan: unit,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: SIGNATURE,
+            },
+        },
+    }
+}
+
 fn mouse_event(dx: i32, dy: i32, data: u32, flags: MOUSE_EVENT_FLAGS) -> INPUT {
     INPUT {
         r#type: INPUT_MOUSE,
@@ -158,6 +178,17 @@ pub fn cursor_pos() -> (i32, i32) {
     let mut p = POINT::default();
     let _ = unsafe { GetCursorPos(&mut p) };
     (p.x, p.y)
+}
+
+/// Top-level window under a screen point, as a raw handle value.
+pub fn root_window_at(x: i32, y: i32) -> isize {
+    use windows::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, WindowFromPoint};
+    unsafe { GetAncestor(WindowFromPoint(POINT { x, y }), GA_ROOT).0 as isize }
+}
+
+/// The window that currently has keyboard focus, as a raw handle value.
+pub fn foreground_window() -> isize {
+    unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow().0 as isize }
 }
 
 /// Bounding box of all monitors: (left, top, width, height) in physical pixels.

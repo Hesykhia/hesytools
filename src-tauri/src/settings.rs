@@ -3,6 +3,7 @@
 use engine::clicker::ClickerConfig;
 use engine::hotkey::Hotkey;
 use engine::keys::Key;
+use engine::macros::RecordOptions;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -23,6 +24,7 @@ pub struct WebhookSettings {
     /// Optional Discord user ID to @mention in notifications.
     pub mention_user_id: String,
     pub notify_clicker_finished: bool,
+    pub notify_macro_finished: bool,
 }
 
 impl Default for WebhookSettings {
@@ -31,6 +33,7 @@ impl Default for WebhookSettings {
             url: String::new(),
             mention_user_id: String::new(),
             notify_clicker_finished: true,
+            notify_macro_finished: true,
         }
     }
 }
@@ -43,6 +46,9 @@ pub struct Settings {
     pub clicker_mode: HotkeyMode,
     /// Stops everything, always.
     pub panic_hotkey: Option<Hotkey>,
+    /// Starts/stops macro recording from anywhere.
+    pub record_hotkey: Option<Hotkey>,
+    pub record: RecordOptions,
     pub webhook: WebhookSettings,
 }
 
@@ -53,6 +59,8 @@ impl Default for Settings {
             clicker_hotkey: Key::from_name("F6").map(Hotkey::key),
             clicker_mode: HotkeyMode::Toggle,
             panic_hotkey: Key::from_name("F8").map(Hotkey::key),
+            record_hotkey: Key::from_name("F9").map(Hotkey::key),
+            record: RecordOptions::default(),
             webhook: WebhookSettings::default(),
         }
     }

@@ -6,7 +6,10 @@
   import TitleBar from "$lib/components/ui/TitleBar.svelte";
   import Tabs from "$lib/components/ui/Tabs.svelte";
   import QuickClicker from "$lib/components/clicker/QuickClicker.svelte";
-  import MacrosEmpty from "$lib/components/MacrosEmpty.svelte";
+  import MacroLibrary from "$lib/components/macros/MacroLibrary.svelte";
+  import MacroEditor from "$lib/components/macros/MacroEditor.svelte";
+  import RecordingBar from "$lib/components/macros/RecordingBar.svelte";
+  import { activity, initActivity } from "$lib/activity.svelte";
   import WatchPreview from "$lib/components/WatchPreview.svelte";
   import SettingsSheet from "$lib/components/SettingsSheet.svelte";
 
@@ -20,6 +23,25 @@
   let loadError = $state("");
   let running = $state(false);
   let settingsOpen = $state(false);
+  /** Macro open in the editor, or null for the library. */
+  let editing = $state<string | null>(null);
+  let editingMacro = $derived(editing ? activity.macros.find((m) => m.id === editing) : undefined);
+  let busy = $derived(running || activity.playingId !== null);
+  let aurora = $derived<"idle" | "live" | "rec">(activity.recording ? "rec" : busy ? "live" : "idle");
+
+  function openMacro(id: string | null) {
+    direction = id ? 1 : -1;
+    editing = id;
+    page = "macros";
+  }
+
+  // A finished recording opens straight in the editor.
+  $effect(() => {
+    if (activity.openId) {
+      openMacro(activity.openId);
+      activity.openId = null;
+    }
+  });
 
   function go(p: Page) {
     direction = ORDER.indexOf(p) > ORDER.indexOf(page) ? 1 : -1;
@@ -31,12 +53,12 @@
     api.systemInfo().then((i) => (info = i));
     api.clickerStatus().then((s) => (running = s.running));
     // Keep the glow in sync even while the clicker panel isn't on screen.
-    const unlisteners = [onToast((m) => toast(m)), onClickerState((r) => (running = r))];
+    const unlisteners = [onToast((m) => toast(m)), onClickerState((r) => (running = r)), initActivity()];
     return () => unlisteners.forEach((u) => u.then((f) => f()));
   });
 </script>
 
-<Aurora active={running} />
+<Aurora mode={aurora} />
 
 <div class="app">
   <TitleBar>
@@ -45,7 +67,7 @@
         value={page}
         onchange={go}
         options={[
-          { value: "macros", label: "Macros", dot: running },
+          { value: "macros", label: "Macros", dot: busy },
           { value: "watch", label: "Screen Watch" },
         ]}
       />
@@ -62,11 +84,13 @@
     {#if loadError}
       <div class="glass error">Couldn't load settings: {loadError}</div>
     {:else if settings}
-      {#key page}
+      {#key `${page}:${editingMacro ? editing : ""}`}
         <div class="page" style:--dir={direction}>
-          {#if page === "macros"}
+          {#if page === "macros" && editingMacro}
+            <MacroEditor source={editingMacro} onback={() => openMacro(null)} />
+          {:else if page === "macros"}
             <QuickClicker bind:settings bind:running />
-            <MacrosEmpty />
+            <MacroLibrary bind:settings onopen={openMacro} />
           {:else}
             <WatchPreview />
           {/if}
@@ -81,6 +105,10 @@
   </main>
 
 </div>
+
+{#if activity.recording}
+  <RecordingBar hotkey={settings?.recordHotkey ?? null} />
+{/if}
 
 {#if settings}
   <SettingsSheet bind:open={settingsOpen} bind:settings {info} />

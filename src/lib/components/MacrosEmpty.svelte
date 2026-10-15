@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Placeholder for the macro library until the recorder lands. The ghost
-  // steps preview what a recorded macro will look like.
+  // Shown when there are no macros yet; the ghost steps preview what a
+  // recorded macro looks like.
   const STEPS = [
     { icon: "key", label: "Press", value: "E" },
     { icon: "wait", label: "Wait", value: "200 ms" },
@@ -14,17 +14,6 @@
     click: "M9 3v3M4.5 5.5l2 2M3 10h3m3-1 10 4-4 1.5L13.5 19z",
   };
 </script>
-
-<section class="macros">
-  <div class="head">
-    <div>
-      <h2>Macros</h2>
-      <p>Record what you do once, replay it forever.</p>
-    </div>
-    <button class="btn" disabled title="Coming in the next update">
-      <span class="rec"></span>Record a macro
-    </button>
-  </div>
 
   <div class="empty glass">
     <div class="ghosts" aria-hidden="true">
@@ -40,44 +29,16 @@
       {/each}
     </div>
     <div class="copy">
-      <span class="badge">Next up</span>
-      <h3>Your macros will live here</h3>
+      <span class="badge">Get started</span>
+      <h3>Record your first macro</h3>
       <p>
-        Hit record and play normally. hesytools captures your keys, clicks and timing as editable steps. Then add loops,
-        conditions, and "wait until this appears on screen".
+        Hit <b>Record</b>, switch to your game or app and play normally. hesytools turns your keys, clicks and timing
+        into steps you can edit, loop and speed up.
       </p>
     </div>
   </div>
-</section>
 
 <style>
-  .macros {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-  .head {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    padding: 0 6px;
-  }
-  h2 {
-    font-size: 19px;
-    letter-spacing: -0.02em;
-  }
-  .head p {
-    color: var(--text-3);
-    font-size: 13px;
-    margin-top: 2px;
-  }
-  .rec {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--red);
-    box-shadow: 0 0 8px var(--red);
-  }
   .empty {
     display: grid;
     grid-template-columns: 1fr 1fr;

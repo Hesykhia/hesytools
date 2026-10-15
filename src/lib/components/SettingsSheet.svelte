@@ -57,9 +57,9 @@
     }
   }
 
-  async function setPanic(v: string | null) {
+  async function setGlobalHotkey(id: "panic" | "record", v: string | null) {
     try {
-      settings = await api.setHotkey("panic", v);
+      settings = await api.setHotkey(id, v);
     } catch (e) {
       toast(errorText(e), "error");
     }
@@ -87,7 +87,17 @@
             <b>Panic key</b>
             <small>Stops the clicker and every macro instantly, from anywhere</small>
           </div>
-          <HotkeyButton value={settings.panicHotkey} onchange={setPanic} />
+          <HotkeyButton value={settings.panicHotkey} onchange={(v) => setGlobalHotkey("panic", v)} />
+        </div>
+        <div class="row second">
+          <span class="icon rec">
+            <svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="currentColor" /></svg>
+          </span>
+          <div class="text">
+            <b>Record key</b>
+            <small>Starts and stops macro recording, even while a game is focused</small>
+          </div>
+          <HotkeyButton value={settings.recordHotkey} onchange={(v) => setGlobalHotkey("record", v)} />
         </div>
       </div>
 
@@ -98,7 +108,7 @@
           </span>
           <div class="text">
             <b>Discord alerts</b>
-            <small>Get a message when the clicker finishes. Macro and screen alerts come later.</small>
+            <small>Get a message when a clicker or macro finishes. Screen-watch alerts come later.</small>
           </div>
         </div>
         <div class="fields">
@@ -107,6 +117,10 @@
           <div class="row tight">
             <div class="text"><small class="plain">Alert when the Quick Clicker finishes a count or time limit</small></div>
             <Toggle checked={webhook.notifyClickerFinished} onchange={(v) => (webhook.notifyClickerFinished = v)} label="Notify on finish" />
+          </div>
+          <div class="row tight">
+            <div class="text"><small class="plain">Alert when a macro finishes all its runs</small></div>
+            <Toggle checked={webhook.notifyMacroFinished} onchange={(v) => (webhook.notifyMacroFinished = v)} label="Notify when a macro finishes" />
           </div>
           <div class="actions">
             <span class="how">Channel settings → Integrations → Webhooks → Copy URL</span>
@@ -249,6 +263,15 @@
   .icon.red {
     color: var(--red);
     background: rgba(255, 92, 112, 0.14);
+  }
+  .icon.rec {
+    color: var(--red);
+    background: rgba(255, 92, 112, 0.1);
+  }
+  .row.second {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--stroke);
   }
   .icon.discord {
     color: #8e97ff;

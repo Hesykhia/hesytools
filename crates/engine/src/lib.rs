@@ -7,5 +7,6 @@ pub mod hooks;
 pub mod hotkey;
 pub mod input;
 pub mod keys;
+pub mod macros;
 pub mod timer;
 pub mod webhook;

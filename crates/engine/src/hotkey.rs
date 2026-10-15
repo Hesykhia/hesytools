@@ -10,6 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Trigger {
@@ -93,6 +94,7 @@ impl<'de> Deserialize<'de> for Hotkey {
 pub struct HotkeyManager {
     bindings: RwLock<HashMap<String, Hotkey>>,
     capture: Mutex<Option<Sender<Option<Hotkey>>>>,
+    suspended: AtomicBool,
 }
 
 impl HotkeyManager {
@@ -100,6 +102,7 @@ impl HotkeyManager {
         let mgr = Arc::new(Self {
             bindings: RwLock::new(HashMap::new()),
             capture: Mutex::new(None),
+            suspended: AtomicBool::new(false),
         });
         let rx = hooks::subscribe(false);
         let m = mgr.clone();
@@ -170,6 +173,9 @@ impl HotkeyManager {
     /// that, a binding fires if its modifiers are a subset of those held, so
     /// "F6" still works while you're holding Shift to sprint in a game.
     fn matches(&self, pressed: &Hotkey) -> Vec<String> {
+        if self.suspended.load(Ordering::SeqCst) {
+            return Vec::new();
+        }
         let b = self.bindings.read();
         let same_trigger = || b.iter().filter(|(_, h)| h.trigger == pressed.trigger);
         let exact: Vec<String> =
@@ -190,6 +196,17 @@ impl HotkeyManager {
             Some(h) => b.insert(id.to_string(), h),
             None => b.remove(id),
         };
+    }
+
+    /// Remove every binding whose id starts with `prefix`.
+    pub fn clear_prefix(&self, prefix: &str) {
+        self.bindings.write().retain(|id, _| !id.starts_with(prefix));
+    }
+
+    /// While suspended no binding fires (used while capturing a new hotkey,
+    /// so pressing an already-bound key doesn't also trigger its action).
+    pub fn suspend(&self, on: bool) {
+        self.suspended.store(on, Ordering::SeqCst);
     }
 
     /// Block until the user presses the next key/button combo. Escape cancels
