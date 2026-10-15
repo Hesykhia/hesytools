@@ -74,8 +74,7 @@ crates/engine/   Everything that touches Windows, independent of the UI:
                  picker, outline, import, startup, webhook, elevation
 src-tauri/       The app: commands, settings, macro storage, watch runner,
                  tray
-src/             SvelteKit UI (Svelte 5). Motion follows the transitions.dev
-                 tokens (.agents/skills)
+src/             SvelteKit UI (Svelte 5)
 ```
 
 Settings and macros live in `%APPDATA%\com.hesy.hesytools\` as plain JSON
