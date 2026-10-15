@@ -261,6 +261,12 @@
   .row:hover {
     background: rgba(255, 255, 255, 0.055);
   }
+  /* Actions with no wait between them still need breathing room. */
+  .row + .row,
+  .nest + .row,
+  .row + .nest {
+    margin-top: 6px;
+  }
   .row.active {
     border-color: rgba(61, 242, 176, 0.55);
     background: rgba(61, 242, 176, 0.07);

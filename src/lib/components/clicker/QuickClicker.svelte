@@ -273,7 +273,9 @@
 
       <Popover width={320}>
         {#snippet trigger({ toggle, open })}
-          <button class="chip" class:open onclick={toggle}>{rateText}</button>
+          <button class="chip" class:open onclick={toggle}>{rateText}</button>{#if cfg.action.kind !== "mouse"}<span
+              class="punct">,</span
+            >{/if}
         {/snippet}
         {#snippet children()}
           <div class="center">
@@ -314,7 +316,7 @@
       {#if cfg.action.kind === "mouse"}
         <Popover width={330}>
           {#snippet trigger({ toggle, open })}
-            <button class="chip" class:open onclick={toggle}>{whereText}</button>
+            <button class="chip" class:open onclick={toggle}>{whereText}</button><span class="punct">,</span>
           {/snippet}
           {#snippet children()}
             <button class="option" class:on={cfg.position.kind === "current"} onclick={() => (cfg.position = { kind: "current" })}>
@@ -338,11 +340,11 @@
               {#if picking}<p class="note">Click the spot you want. Esc cancels.</p>{/if}
             {/if}
           {/snippet}
-        </Popover>{/if}<span class="comma">,</span>
+        </Popover>{/if}
 
       <Popover width={300}>
         {#snippet trigger({ toggle, open })}
-          <button class="chip" class:open onclick={toggle}>{stopText}</button>
+          <button class="chip" class:open onclick={toggle}>{stopText}</button><span class="punct">.</span>
         {/snippet}
         {#snippet children()}
           <div class="center">
@@ -371,7 +373,7 @@
             <p class="note">Keeps going until you press the hotkey, the panic key, or the orb.</p>
           {/if}
         {/snippet}
-      </Popover><span class="dot-end">.</span>
+      </Popover>
     </p>
 
     <div class="hotkey-row">
@@ -502,9 +504,9 @@
       0 0 0 4px rgba(139, 108, 255, 0.18),
       0 0 24px -4px rgba(139, 108, 255, 0.7);
   }
-  .comma,
-  .dot-end {
-    margin: 0 8px 0 -5px;
+  /* Punctuation lives inside each popover's anchor so it hugs its chip. */
+  .punct {
+    margin: 0 6px 0 -2px;
   }
   .live .chip {
     background: linear-gradient(180deg, rgba(61, 242, 176, 0.2), rgba(61, 242, 176, 0.07));

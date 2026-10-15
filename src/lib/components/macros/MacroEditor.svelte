@@ -94,6 +94,7 @@
 
   const SPEEDS = [0.25, 0.5, 1, 1.5, 2, 4];
   let total = $derived(durationMs(m.steps) / (m.speed || 1));
+  let repeatText = $derived(m.repeat === 0 ? "until I stop it" : m.repeat === 1 ? "once" : `${m.repeat} times`);
 </script>
 
 <div class="editor">
@@ -115,15 +116,21 @@
 
       <p class="sentence">
         Play
-        {#if m.repeat === 0}
-          <button class="chip" onclick={() => (m.repeat = 1)}>until I stop it</button>
-        {:else}
-          <InlineNumber value={m.repeat} min={1} onchange={(v) => (m.repeat = Math.round(v))} />
-          {m.repeat === 1 ? "time" : "times"}
-          <button class="mini" onclick={() => (m.repeat = 0)}>forever</button>
-        {/if}
+        <Popover width={250}>
+          {#snippet trigger({ toggle, open })}
+            <button class="chip" class:open onclick={toggle}>{repeatText}</button>
+          {/snippet}
+          {#snippet children({ close })}
+            <button class="menu-item" class:on={m.repeat === 1} onclick={() => ((m.repeat = 1), close())}>Once</button>
+            <div class="menu-item times" class:on={m.repeat > 1}>
+              <InlineNumber value={m.repeat > 1 ? m.repeat : 3} min={2} onchange={(v) => (m.repeat = Math.max(2, Math.round(v)))} />
+              times
+            </div>
+            <button class="menu-item" class:on={m.repeat === 0} onclick={() => ((m.repeat = 0), close())}>Until I stop it</button>
+          {/snippet}
+        </Popover>
         at
-        <Popover width={240} align="center">
+        <Popover width={240}>
           {#snippet trigger({ toggle, open })}
             <button class="chip" class:open onclick={toggle}>{m.speed}× speed</button>
           {/snippet}
@@ -135,9 +142,13 @@
             </div>
           {/snippet}
         </Popover>
-        , started with
-        <HotkeyButton value={m.hotkey} onchange={setHotkey} placeholder="no hotkey" />
       </p>
+
+      <div class="hotkey-row">
+        <span>Press</span>
+        <HotkeyButton value={m.hotkey} onchange={setHotkey} placeholder="Set a hotkey" />
+        <span>to start or stop this macro from anywhere</span>
+      </div>
     </div>
 
     <button class="play" class:playing class:counting={countdown > 0} onclick={playStop}>
@@ -279,16 +290,38 @@
   .chip.open {
     background: rgba(139, 108, 255, 0.3);
   }
-  .mini {
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--text-3);
-    padding: 2px 8px;
-    border-radius: 99px;
+  .hotkey-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+    padding: 6px 14px 6px 12px;
+    border-radius: 14px;
+    font-size: 13.5px;
+    color: var(--text-2);
+    background: rgba(0, 0, 0, 0.2);
     border: 1px solid var(--stroke);
   }
-  .mini:hover {
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    border-radius: 9px;
+    font-size: 14px;
+    font-weight: 550;
     color: var(--text);
+  }
+  button.menu-item:hover {
+    background: var(--glass-hover);
+  }
+  .menu-item.on {
+    color: var(--violet-2);
+  }
+  .menu-item.times {
+    color: var(--text-2);
   }
   .speeds {
     display: grid;

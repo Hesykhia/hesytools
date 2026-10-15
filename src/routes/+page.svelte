@@ -62,6 +62,9 @@
 
 <div class="app">
   <TitleBar>
+    {#if activity.recording}
+      <RecordingBar hotkey={settings?.recordHotkey ?? null} />
+    {:else}
     <div class="nav">
       <Tabs
         value={page}
@@ -78,6 +81,7 @@
         </svg>
       </button>
     </div>
+    {/if}
   </TitleBar>
 
   <main>
@@ -105,10 +109,6 @@
   </main>
 
 </div>
-
-{#if activity.recording}
-  <RecordingBar hotkey={settings?.recordHotkey ?? null} />
-{/if}
 
 {#if settings}
   <SettingsSheet bind:open={settingsOpen} bind:settings {info} />

@@ -18,24 +18,16 @@
   <span class="dot"></span>
   <b>Recording</b>
   <span class="clock">{clock}</span>
-  <span class="hint">
-    Go do your thing. Clicks inside hesytools are ignored.
-    {#if hotkey}Press <kbd>{hotkey}</kbd> to stop.{/if}
-  </span>
+  {#if hotkey}<span class="hint"><kbd>{hotkey}</kbd> to stop</span>{/if}
   <button class="stop" onclick={() => api.recordingStop()}>Stop</button>
 </div>
 
 <style>
   .bar {
-    position: fixed;
-    top: 60px;
-    left: 50%;
-    translate: -50% 0;
-    z-index: 30;
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 8px 8px 16px;
+    padding: 5px 5px 5px 14px;
     border-radius: 999px;
     background: #1f1219;
     border: 1px solid rgba(255, 92, 112, 0.45);
@@ -74,7 +66,7 @@
   }
   .stop {
     font-weight: 650;
-    padding: 6px 14px;
+    padding: 5px 14px;
     border-radius: 999px;
     background: var(--red);
     color: white;
