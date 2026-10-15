@@ -282,3 +282,29 @@ export function onSettingsChanged(cb: (s: Settings) => void): Promise<UnlistenFn
 export function onRecordingProgress(cb: (steps: Step[]) => void): Promise<UnlistenFn> {
   return listen<Step[]>("recording-progress", (e) => cb(e.payload));
 }
+
+/** The macro list changed in the backend (e.g. a hotkey moved off a macro). */
+export function onMacrosChanged(cb: (macros: Macro[]) => void): Promise<UnlistenFn> {
+  return listen<Macro[]>("macros-changed", (e) => cb(e.payload));
+}
+
+const TYPING_NAMES = new Set([
+  "Space", "Enter", "Tab", "Backspace", "Delete", "Semicolon", "Equals", "Comma", "Minus", "Period",
+  "Slash", "Backtick", "LBracket", "Backslash", "RBracket", "Quote", "NumAdd", "NumSubtract",
+  "NumMultiply", "NumDivide", "NumDecimal",
+]);
+
+/**
+ * Hotkeys take over their key system-wide. Warn when that costs something
+ * you'd normally use: a typing key (without Ctrl/Alt/Win) or a mouse button.
+ */
+export function hotkeyWarning(combo: string | null): string | null {
+  if (!combo) return null;
+  const parts = combo.split("+");
+  const key = parts.pop()!;
+  if (parts.some((m) => m === "Ctrl" || m === "Alt" || m === "Win")) return null;
+  if (key === "RightMouse") return "Right-click won't work normally while this hotkey is set.";
+  if (key === "MiddleMouse") return "Middle-click won't work normally while this hotkey is set.";
+  const typing = key.length === 1 || /^Num\d$/.test(key) || TYPING_NAMES.has(key);
+  return typing ? `“${key}” won't type anywhere while hesytools is running. It'll only trigger this hotkey.` : null;
+}

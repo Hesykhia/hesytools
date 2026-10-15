@@ -75,6 +75,86 @@ pub fn subscribe(want_moves: bool) -> Receiver<InputEvent> {
     rx
 }
 
+// ── Hotkeys take over their key ────────────────────────────────────────────
+//
+// A bound hotkey swallows its key (press and release) so it doesn't also do
+// its normal job: PgUp doesn't scroll, 6 doesn't type. Triggers are encoded
+// as a code (key: its VK; mouse button: MOUSE_CODE + index) plus the
+// modifiers it needs (MOD_* bits; extra held modifiers still match).
+
+pub const MOD_CTRL: u8 = 1;
+pub const MOD_SHIFT: u8 = 2;
+pub const MOD_ALT: u8 = 4;
+pub const MOD_WIN: u8 = 8;
+pub const MOUSE_CODE: u32 = 0x1000;
+
+static BLOCKED: parking_lot::RwLock<Vec<(u32, u8)>> = parking_lot::RwLock::new(Vec::new());
+/// Codes whose press we swallowed, so we swallow their release too.
+static SWALLOWED: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+/// While capturing a new hotkey, swallow the next press too.
+static CAPTURING: AtomicBool = AtomicBool::new(false);
+
+/// Replace the set of hotkeys that take over their key.
+pub fn set_blocked(triggers: Vec<(u32, u8)>) {
+    *BLOCKED.write() = triggers;
+}
+
+/// Swallow the next key or (non-left) mouse button press, for hotkey capture.
+pub fn swallow_next_press(on: bool) {
+    CAPTURING.store(on, Ordering::SeqCst);
+}
+
+pub fn mouse_code(b: MouseButton) -> u32 {
+    MOUSE_CODE
+        + match b {
+            MouseButton::Left => 0,
+            MouseButton::Right => 1,
+            MouseButton::Middle => 2,
+            MouseButton::X1 => 3,
+            MouseButton::X2 => 4,
+        }
+}
+
+fn held_mods() -> u8 {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT};
+    let down = |vk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY| unsafe { GetAsyncKeyState(vk.0 as i32) } as u16 & 0x8000 != 0;
+    (if down(VK_CONTROL) { MOD_CTRL } else { 0 })
+        | (if down(VK_SHIFT) { MOD_SHIFT } else { 0 })
+        | (if down(VK_MENU) { MOD_ALT } else { 0 })
+        | (if down(VK_LWIN) || down(VK_RWIN) { MOD_WIN } else { 0 })
+}
+
+/// Decide (inside the hook) whether to swallow this press/release.
+fn should_swallow(code: u32, down: bool, is_modifier: bool) -> bool {
+    if !down {
+        let mut s = SWALLOWED.lock();
+        return match s.iter().position(|c| *c == code) {
+            Some(i) => {
+                s.swap_remove(i);
+                true
+            }
+            None => false,
+        };
+    }
+    let take = if CAPTURING.load(Ordering::SeqCst) && !is_modifier {
+        CAPTURING.store(false, Ordering::SeqCst);
+        true
+    } else {
+        let blocked = BLOCKED.read();
+        !blocked.is_empty() && {
+            let held = held_mods();
+            blocked.iter().any(|(c, m)| *c == code && held & m == *m)
+        }
+    };
+    if take {
+        let mut s = SWALLOWED.lock();
+        if !s.contains(&code) {
+            s.push(code);
+        }
+    }
+    take
+}
+
 static PICKING: AtomicBool = AtomicBool::new(false);
 static PICK_TX: Mutex<Option<Sender<Option<(i32, i32)>>>> = Mutex::new(None);
 static SWALLOW_LEFT_UP: AtomicBool = AtomicBool::new(false);
@@ -155,6 +235,10 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
             foreign_injected: !ours && k.flags.contains(LLKHF_INJECTED),
             at: Instant::now(),
         });
+        let key = Key(k.vkCode as u16);
+        if !ours && should_swallow(k.vkCode, down, key.modifier().is_some()) {
+            return LRESULT(1);
+        }
     }
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
@@ -204,6 +288,12 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                 foreign_injected: !ours && (m.flags & LLMHF_INJECTED) != 0,
                 at: Instant::now(),
             });
+            // Bound mouse buttons take over too (never the left button).
+            if let InputKind::Button { button, down } = kind {
+                if !ours && button != MouseButton::Left && should_swallow(mouse_code(button), down, false) {
+                    return LRESULT(1);
+                }
+            }
         }
     }
     unsafe { CallNextHookEx(None, code, wparam, lparam) }

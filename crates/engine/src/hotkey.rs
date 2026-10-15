@@ -196,11 +196,35 @@ impl HotkeyManager {
             Some(h) => b.insert(id.to_string(), h),
             None => b.remove(id),
         };
+        drop(b);
+        self.sync_blocked();
+    }
+
+    /// Bound keys take over their key system-wide (see hooks::set_blocked).
+    fn sync_blocked(&self) {
+        let list = self
+            .bindings
+            .read()
+            .values()
+            .map(|h| {
+                let code = match h.trigger {
+                    Trigger::Key(k) => k.0 as u32,
+                    Trigger::Mouse(b) => hooks::mouse_code(b),
+                };
+                let mods = (if h.ctrl { hooks::MOD_CTRL } else { 0 })
+                    | (if h.shift { hooks::MOD_SHIFT } else { 0 })
+                    | (if h.alt { hooks::MOD_ALT } else { 0 })
+                    | (if h.win { hooks::MOD_WIN } else { 0 });
+                (code, mods)
+            })
+            .collect();
+        hooks::set_blocked(list);
     }
 
     /// Remove every binding whose id starts with `prefix`.
     pub fn clear_prefix(&self, prefix: &str) {
         self.bindings.write().retain(|id, _| !id.starts_with(prefix));
+        self.sync_blocked();
     }
 
     /// While suspended no binding fires (used while capturing a new hotkey,
@@ -216,7 +240,11 @@ impl HotkeyManager {
         loop {
             let (tx, rx) = crossbeam_channel::bounded(1);
             *self.capture.lock() = Some(tx);
-            let hk = rx.recv().ok()??;
+            // The key pressed to set a hotkey shouldn't also type somewhere.
+            hooks::swallow_next_press(true);
+            let hk = rx.recv().ok().flatten();
+            hooks::swallow_next_press(false);
+            let hk = hk?;
             if hk.trigger != Trigger::Mouse(MouseButton::Left) {
                 return Some(hk);
             }

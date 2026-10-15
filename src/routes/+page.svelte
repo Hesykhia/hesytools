@@ -1,6 +1,15 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, errorText, onClickerState, onToast, type Settings, type SystemInfo } from "$lib/api";
+  import {
+    api,
+    errorText,
+    onClickerState,
+    onMacrosChanged,
+    onSettingsChanged,
+    onToast,
+    type Settings,
+    type SystemInfo,
+  } from "$lib/api";
   import { toast, toasts } from "$lib/toast.svelte";
   import Aurora from "$lib/components/ui/Aurora.svelte";
   import TitleBar from "$lib/components/ui/TitleBar.svelte";
@@ -53,7 +62,19 @@
     api.systemInfo().then((i) => (info = i));
     api.clickerStatus().then((s) => (running = s.running));
     // Keep the glow in sync even while the clicker panel isn't on screen.
-    const unlisteners = [onToast((m) => toast(m)), onClickerState((r) => (running = r)), initActivity()];
+    const unlisteners = [
+      onToast((m) => toast(m)),
+      onClickerState((r) => (running = r)),
+      initActivity(),
+      // The backend changed something itself (a hotkey moved, panic turned
+      // watches off): pick it up.
+      onSettingsChanged((s) => {
+        settings = s;
+      }),
+      onMacrosChanged((list) => {
+        activity.macros = list;
+      }),
+    ];
     return () => unlisteners.forEach((u) => u.then((f) => f()));
   });
 </script>

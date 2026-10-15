@@ -325,6 +325,42 @@ fn hotkey_owner(a: &App, hk: Hotkey, except: &str) -> Option<String> {
         .map(|(_, _, name)| name)
 }
 
+/// Choosing a key that's already in use moves it: the previous owner loses
+/// it, and the UI is told (toast + refreshed settings/macros).
+fn take_hotkey(app: &AppHandle, a: &App, hk: Hotkey, new_owner: &str) -> Result<(), String> {
+    if hk.trigger == Trigger::Key(engine::keys::Key::ESCAPE) {
+        return Err("Esc is reserved: it cancels picking and capturing".into());
+    }
+    let Some(owner) = hotkey_owner(a, hk, new_owner) else { return Ok(()) };
+    {
+        let mut guard = a.settings.lock();
+        let s = &mut *guard;
+        for slot in [&mut s.clicker_hotkey, &mut s.panic_hotkey, &mut s.record_hotkey] {
+            if *slot == Some(hk) {
+                *slot = None;
+            }
+        }
+        a.store.save(s)?;
+    }
+    let moved: Vec<Macro> = {
+        let mut list = a.macros.lock();
+        list.iter_mut()
+            .filter(|m| m.hotkey == Some(hk) && format!("{HK_MACRO_PREFIX}{}", m.id) != new_owner)
+            .map(|m| {
+                m.hotkey = None;
+                m.clone()
+            })
+            .collect()
+    };
+    for m in &moved {
+        a.macro_store.save(m)?;
+    }
+    let _ = app.emit("toast", format!("{hk} moved here from {owner}"));
+    let _ = app.emit("settings-changed", a.settings.lock().clone());
+    let _ = app.emit("macros-changed", a.macros.lock().clone());
+    Ok(())
+}
+
 // ── Screen Watch ────────────────────────────────────────────────────────────
 
 fn sync_watches(app: &AppHandle, a: &Arc<App>) {
@@ -418,10 +454,10 @@ fn set_record_options(a: AppState, options: RecordOptions) -> Result<(), String>
 
 /// Set one of the global hotkeys: "clicker", "panic" or "record".
 #[tauri::command]
-fn set_hotkey(a: AppState, id: String, hotkey: Option<String>) -> Result<Settings, String> {
+fn set_hotkey(app: AppHandle, a: AppState, id: String, hotkey: Option<String>) -> Result<Settings, String> {
     let hk: Option<Hotkey> = hotkey.as_deref().map(str::parse).transpose()?;
-    if let Some(owner) = hk.and_then(|h| hotkey_owner(&a, h, &id)) {
-        return Err(format!("That key is already used by {owner}"));
+    if let Some(h) = hk {
+        take_hotkey(&app, &a, h, &id)?;
     }
     let s = a.update(|s| match id.as_str() {
         HK_CLICKER => s.clicker_hotkey = hk,
@@ -482,13 +518,13 @@ fn list_macros(a: AppState) -> Vec<Macro> {
 }
 
 #[tauri::command]
-fn save_macro(a: AppState, mut entry: Macro) -> Result<Macro, String> {
+fn save_macro(app: AppHandle, a: AppState, mut entry: Macro) -> Result<Macro, String> {
     if entry.id.is_empty() {
         entry.id = macro_store::new_id();
     }
     let hk_id = format!("{HK_MACRO_PREFIX}{}", entry.id);
-    if let Some(owner) = entry.hotkey.and_then(|h| hotkey_owner(&a, h, &hk_id)) {
-        return Err(format!("That key is already used by {owner}"));
+    if let Some(h) = entry.hotkey {
+        take_hotkey(&app, &a, h, &hk_id)?;
     }
     entry.name = entry.name.trim().to_string();
     if entry.name.is_empty() {

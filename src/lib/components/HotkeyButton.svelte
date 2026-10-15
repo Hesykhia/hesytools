@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, errorText } from "$lib/api";
+  import { api, errorText, hotkeyWarning } from "$lib/api";
   import { toast } from "$lib/toast.svelte";
 
   let {
@@ -25,7 +25,11 @@
     capturing = true;
     try {
       const got = await api.captureHotkey();
-      if (got) await onchange(got);
+      if (got) {
+        await onchange(got);
+        const warn = hotkeyWarning(got);
+        if (warn) toast(warn, "info", 6000);
+      }
     } catch (e) {
       toast(errorText(e), "error");
     } finally {
@@ -42,6 +46,7 @@
       {#each value.split("+") as part}
         <kbd>{part}</kbd>
       {/each}
+      {#if hotkeyWarning(value)}<span class="warn" title={hotkeyWarning(value)}></span>{/if}
     {:else}
       <span class="placeholder">{placeholder}</span>
     {/if}
@@ -84,6 +89,14 @@
     box-shadow:
       inset 0 -2px 0 rgba(0, 0, 0, 0.35),
       0 2px 6px -2px rgba(0, 0, 0, 0.5);
+  }
+  .warn {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--amber);
+    box-shadow: 0 0 6px var(--amber);
+    margin-left: 2px;
   }
   .placeholder {
     color: var(--text-3);
