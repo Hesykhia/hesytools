@@ -20,6 +20,7 @@
   import Slider from "../ui/Slider.svelte";
   import Disclosure from "../ui/Disclosure.svelte";
   import ClickerOrb from "./ClickerOrb.svelte";
+  import OnlyInChip from "../OnlyInChip.svelte";
   import Toggle from "../ui/Toggle.svelte";
 
   let { settings = $bindable(), running = $bindable(false) }: { settings: Settings; running?: boolean } = $props();
@@ -180,7 +181,9 @@
     clicks = s.clicks;
     blocked = s.blocked;
     running = s.running;
+    waiting = s.running && s.waiting;
   }
+  let waiting = $state(false);
 
   function setRunning(r: boolean) {
     running = r;
@@ -281,6 +284,9 @@
   </header>
 
   <div class="orb-wrap"><ClickerOrb {phase} {cps} {countdown} onclick={startStop} size={150} /></div>
+  {#if waiting && cfg.onlyIn}
+    <p class="waiting">Waiting for {cfg.onlyIn.exe.replace(/\.exe$/i, "")}. Click back into it to carry on.</p>
+  {/if}
 
   <p class="sentence">
     <Popover width={320}>
@@ -410,7 +416,7 @@
 
     <Popover width={290}>
       {#snippet trigger({ toggle, open })}
-        <button class="chip" class:open onclick={toggle}>{stopText}</button><span class="punct">.</span>
+        <button class="chip" class:open onclick={toggle}>{stopText}</button><span class="punct">,</span>
       {/snippet}
       {#snippet children()}
         <span class="label">Click repeat</span>
@@ -455,6 +461,7 @@
         </button>
       {/snippet}
     </Popover>
+    <OnlyInChip value={cfg.onlyIn} onchange={(v) => (cfg.onlyIn = v)} /><span class="punct">.</span>
   </p>
 
   <div class="hotkey-row">
@@ -531,6 +538,13 @@
   .orb-wrap {
     display: flex;
     justify-content: center;
+  }
+  .waiting {
+    text-align: center;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--amber);
+    margin-top: 8px;
   }
   .sentence {
     font-size: 17px;

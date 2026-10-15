@@ -1,6 +1,7 @@
 //! hesytools engine: everything that touches Windows lives here, independent
 //! of the UI, so it can be tested and driven from examples.
 
+pub mod applock;
 pub mod capture;
 pub mod clicker;
 pub mod elevation;

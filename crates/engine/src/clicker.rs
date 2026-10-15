@@ -58,6 +58,8 @@ pub struct ClickerConfig {
     pub double: bool,
     /// Let the interval go below MIN_INTERVAL_MS.
     pub allow_fast: bool,
+    /// Only click while this app is in front and under the click point.
+    pub only_in: Option<crate::window::WindowTarget>,
 }
 
 /// Browsers and most apps can't take clicks much faster than this. Past it
@@ -79,6 +81,7 @@ impl Default for ClickerConfig {
             stop_after: StopAfter::Never,
             double: false,
             allow_fast: false,
+            only_in: None,
         }
     }
 }
@@ -89,6 +92,8 @@ struct Shared {
     clicks: AtomicU64,
     /// Events Windows refused to inject (e.g. blocked by an elevated window).
     blocked: AtomicU64,
+    /// Held back because the "only in" app isn't in front.
+    waiting: AtomicBool,
 }
 
 struct Run {
@@ -103,6 +108,8 @@ pub struct ClickerStatus {
     /// Clicks in the current/most recent run.
     pub clicks: u64,
     pub blocked: u64,
+    /// Waiting for the "only in" app to be in front again.
+    pub waiting: bool,
 }
 
 /// Why a run ended.
@@ -169,6 +176,7 @@ impl Clicker {
             running: self.is_running(),
             clicks: self.shared.clicks.load(Ordering::Relaxed),
             blocked: self.shared.blocked.load(Ordering::Relaxed),
+            waiting: self.is_running() && self.shared.waiting.load(Ordering::Relaxed),
         }
     }
 }
@@ -195,6 +203,13 @@ fn click_loop(cfg: &ClickerConfig, w: &Waiter, shared: &Shared) {
         ),
     };
     let tap: Vec<_> = down.iter().chain(&up).copied().collect();
+    let lock = cfg.only_in.clone().map(crate::applock::AppLock::new);
+    let uses_mouse = !matches!(cfg.action, ClickAction::Key { .. });
+    // Where this click would land, for the "only in" check.
+    let point = || match cfg.position {
+        ClickPosition::Fixed { x, y } => (x, y),
+        ClickPosition::Current => input::cursor_pos(),
+    };
     let mut rng = XorShift::seeded();
     let start = Instant::now();
     let mut next = start;
@@ -212,6 +227,21 @@ fn click_loop(cfg: &ClickerConfig, w: &Waiter, shared: &Shared) {
             StopAfter::Clicks { count: n } if count >= n => return,
             StopAfter::Seconds { secs } if start.elapsed().as_secs_f64() >= secs => return,
             _ => {}
+        }
+        if let Some(lock) = &lock {
+            let mut held = false;
+            while !lock.allows(uses_mouse.then(point)) {
+                held = true;
+                shared.waiting.store(true, Ordering::Relaxed);
+                if !w.wait(Duration::from_millis(20)) {
+                    return;
+                }
+            }
+            shared.waiting.store(false, Ordering::Relaxed);
+            if held {
+                // Carry on at the normal pace, not with a burst of catch-up.
+                next = Instant::now();
+            }
         }
         if let ClickPosition::Fixed { x, y } = cfg.position {
             send(&[input::move_abs_event(x, y)]);

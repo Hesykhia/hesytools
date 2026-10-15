@@ -141,13 +141,22 @@ fn play_macro_by_id(app: &AppHandle, a: &Arc<App>, id: &str) -> Result<(), Strin
             // don't flood the webview with events.
             let mut last_emit = Instant::now() - Duration::from_secs(1);
             let mut last_index = usize::MAX;
-            let result = macros::play(&m, &w, |index, iteration| {
-                if index != last_index && last_emit.elapsed() >= Duration::from_millis(16) {
-                    let _ = handle.emit("macro-step", MacroStep { id: m.id.clone(), index, iteration });
-                    last_emit = Instant::now();
-                    last_index = index;
-                }
-            });
+            let waiting = |on: bool| {
+                let _ = handle.emit("macro-waiting", on);
+            };
+            let result = macros::play_with(
+                &m,
+                &w,
+                |index, iteration| {
+                    if index != last_index && last_emit.elapsed() >= Duration::from_millis(16) {
+                        let _ = handle.emit("macro-step", MacroStep { id: m.id.clone(), index, iteration });
+                        last_emit = Instant::now();
+                        last_index = index;
+                    }
+                },
+                waiting,
+            );
+            let _ = handle.emit("macro-waiting", false);
             let _ = handle.emit("macro-state", Option::<String>::None);
             if let Some(err) = &result.error {
                 let _ = handle.emit("toast", format!("“{}” stopped: {err}", m.name));
@@ -457,11 +466,21 @@ fn sync_watches(app: &AppHandle, a: &Arc<App>) {
                         ClickAt::Found => found_point(rule, condition, check),
                     };
                     let (button, times) = (*button, (*times).clamp(1, 100));
+                    if let Some(lock) = rule.window.clone().map(engine::applock::AppLock::new) {
+                        if !lock.allows(Some((x, y))) {
+                            return skipped(&handle, rule, &lock);
+                        }
+                    }
                     std::thread::spawn(move || watch_click(button, times, x, y));
                     Ok(())
                 }
                 WatchAction::PressKey { key, times } => {
                     let (key, times) = (*key, (*times).clamp(1, 100));
+                    if let Some(lock) = rule.window.clone().map(engine::applock::AppLock::new) {
+                        if !lock.allows(None) {
+                            return skipped(&handle, rule, &lock);
+                        }
+                    }
                     std::thread::spawn(move || {
                         for i in 0..times {
                             if i > 0 {
@@ -534,6 +553,12 @@ fn describe_watch(rule: &WatchRule, condition: &Condition) -> String {
         WatchAction::Shutdown { restart: false } => " Shutting down the PC in 1 minute.".into(),
     };
     format!("{what}.{action}")
+}
+
+/// An app-only watch triggered while its app wasn't in front (or the click
+/// point wasn't on it): don't send input anywhere else.
+fn skipped(app: &AppHandle, rule: &WatchRule, lock: &engine::applock::AppLock) {
+    let _ = app.emit("toast", format!("“{}” skipped: {} isn't in front", rule.name, lock.app_name()));
 }
 
 /// A pausing watch item's match went away (or the watch stopped). Macros

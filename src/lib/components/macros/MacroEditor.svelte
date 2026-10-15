@@ -5,6 +5,7 @@
   import { formatMs, durationMs, actionCount, pathCount, makeMovesInstant } from "$lib/steps";
   import { toast } from "$lib/toast.svelte";
   import HotkeyButton from "../HotkeyButton.svelte";
+  import OnlyInChip from "../OnlyInChip.svelte";
   import InlineNumber from "../ui/InlineNumber.svelte";
   import Popover from "../ui/Popover.svelte";
   import StepList from "./StepList.svelte";
@@ -115,7 +116,8 @@
       <input class="name" bind:value={m.name} spellcheck="false" aria-label="Macro name" />
       <p class="meta">
         {actionCount(m.steps)} actions · {formatMs(total)} per run
-        {#if playing}<span class="now">· playing{m.repeat !== 1 ? ` run ${activity.iteration + 1}` : ""}</span>{/if}
+        {#if playing && activity.waiting && m.onlyIn}<span class="now wait">· waiting for {m.onlyIn.exe.replace(/\.exe$/i, "")}</span>
+        {:else if playing}<span class="now">· playing{m.repeat !== 1 ? ` run ${activity.iteration + 1}` : ""}</span>{/if}
       </p>
 
       <p class="sentence">
@@ -146,6 +148,7 @@
             </div>
           {/snippet}
         </Popover>
+        <OnlyInChip value={m.onlyIn} onchange={(v) => (m.onlyIn = v)} what="keys or clicks" />
       </p>
 
       <div class="hotkey-row">
@@ -291,6 +294,9 @@
   }
   .now {
     color: var(--mint);
+  }
+  .now.wait {
+    color: var(--amber);
   }
   .sentence {
     display: flex;

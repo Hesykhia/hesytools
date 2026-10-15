@@ -36,6 +36,8 @@ export interface ClickerConfig {
   double: boolean;
   /** Allow intervals below MIN_INTERVAL_MS. */
   allowFast?: boolean;
+  /** Only click while this app is in front and under the pointer. */
+  onlyIn?: WindowTarget | null;
 }
 
 /** Faster than this, most apps queue clicks up (see clicker.rs). */
@@ -183,6 +185,8 @@ export interface Macro {
   /** 0 = until stopped */
   repeat: number;
   hotkey: string | null;
+  /** Only send input while this app is in front. */
+  onlyIn?: WindowTarget | null;
   updatedAt: number;
 }
 
@@ -217,6 +221,8 @@ export interface ClickerStatus {
   running: boolean;
   clicks: number;
   blocked: number;
+  /** Waiting for its "only in" app to be in front again. */
+  waiting: boolean;
 }
 
 export interface SystemInfo {
@@ -314,6 +320,10 @@ export function errorText(e: unknown): string {
 
 export function onMacroState(cb: (playingId: string | null) => void): Promise<UnlistenFn> {
   return listen<string | null>("macro-state", (e) => cb(e.payload));
+}
+
+export function onMacroWaiting(cb: (waiting: boolean) => void): Promise<UnlistenFn> {
+  return listen<boolean>("macro-waiting", (e) => cb(e.payload));
 }
 
 export function onMacroStep(cb: (e: MacroStepEvent) => void): Promise<UnlistenFn> {

@@ -6,6 +6,7 @@ import {
   errorText,
   onMacroState,
   onMacroStep,
+  onMacroWaiting,
   onRecordingFinished,
   onRecordingProgress,
   onRecordingState,
@@ -20,6 +21,8 @@ export const activity = $state({
   /** Top-level step index currently playing, and which run it's on. */
   step: -1,
   iteration: 0,
+  /** The playing macro is waiting for its "only in" app. */
+  waiting: false,
   recording: false,
   recordingSince: 0,
   /** Steps captured so far in the current recording, for the live view. */
@@ -40,6 +43,10 @@ export async function initActivity(): Promise<() => void> {
       activity.playingId = id;
       activity.step = -1;
       activity.iteration = 0;
+      activity.waiting = false;
+    }),
+    onMacroWaiting((w) => {
+      activity.waiting = w;
     }),
     onMacroStep((e) => {
       if (e.id !== activity.playingId) return;

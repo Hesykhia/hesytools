@@ -115,6 +115,9 @@ pub struct Macro {
     /// Times to run the whole macro; 0 = until stopped.
     pub repeat: u32,
     pub hotkey: Option<crate::hotkey::Hotkey>,
+    /// Only send input while this app is in front (and, for mouse steps,
+    /// under the pointer); otherwise wait for it.
+    pub only_in: Option<crate::window::WindowTarget>,
     /// Unix millis, for sorting.
     pub updated_at: u64,
 }
@@ -128,6 +131,7 @@ impl Default for Macro {
             speed: 1.0,
             repeat: 1,
             hotkey: None,
+            only_in: None,
             updated_at: 0,
         }
     }
@@ -408,9 +412,17 @@ const WAIT_SLICE: Duration = Duration::from_millis(25);
 /// Plays a macro on the calling thread until it finishes or `waiter` is
 /// cancelled. `on_step(index, iteration)` fires as each top-level step starts.
 /// Anything still held down is released at the end, no matter what.
-pub fn play(m: &Macro, waiter: &Waiter, mut on_step: impl FnMut(usize, u32)) -> PlayResult {
+pub fn play(m: &Macro, waiter: &Waiter, on_step: impl FnMut(usize, u32)) -> PlayResult {
+    play_with(m, waiter, on_step, |_| {})
+}
+
+/// `play`, plus `on_wait(true/false)` as it starts and stops waiting for the
+/// macro's "only in" app.
+pub fn play_with(m: &Macro, waiter: &Waiter, mut on_step: impl FnMut(usize, u32), mut on_wait: impl FnMut(bool)) -> PlayResult {
     let mut p = Player {
         waiter,
+        lock: m.only_in.clone().map(crate::applock::AppLock::new),
+        on_wait: &mut on_wait,
         speed: m.speed.clamp(0.05, 20.0),
         held_keys: HashSet::new(),
         held_buttons: HashSet::new(),
@@ -450,8 +462,19 @@ pub struct PlayResult {
     pub error: Option<String>,
 }
 
+/// What a step is about to send, for the "only in" check.
+#[derive(Clone, Copy)]
+enum Sends {
+    Nothing,
+    Keys,
+    /// Mouse input at this point, or at the cursor.
+    MouseAt(Option<(i32, i32)>),
+}
+
 struct Player<'a> {
     waiter: &'a Waiter,
+    lock: Option<crate::applock::AppLock>,
+    on_wait: &'a mut dyn FnMut(bool),
     speed: f64,
     held_keys: HashSet<Key>,
     held_buttons: HashSet<MouseButton>,
@@ -472,7 +495,9 @@ impl Player<'_> {
         // waiting once it resumes.
         let mut left = d;
         loop {
-            if !self.hold_while_paused() {
+            // Something held down mustn't stay down in another app.
+            let holding = !self.held_keys.is_empty() || !self.held_buttons.is_empty();
+            if !self.hold(if holding { Sends::Keys } else { Sends::Nothing }) {
                 return false;
             }
             let slice = left.min(WAIT_SLICE);
@@ -488,8 +513,29 @@ impl Player<'_> {
 
     /// Block while macros are paused. Returns false if cancelled meanwhile.
     fn hold_while_paused(&mut self) -> bool {
-        if !is_paused() {
+        self.hold(Sends::Nothing)
+    }
+
+    /// Is something stopping this step right now? (paused, or its app isn't
+    /// in front / under the pointer)
+    fn blocked(&self, sends: Sends) -> (bool, bool) {
+        let lock_blocks = match (&self.lock, sends) {
+            (Some(l), Sends::Keys) => !l.allows(None),
+            (Some(l), Sends::MouseAt(at)) => !l.allows(Some(at.unwrap_or_else(input::cursor_pos))),
+            _ => false,
+        };
+        (is_paused() || lock_blocks, lock_blocks)
+    }
+
+    /// Wait until nothing is stopping `sends`, letting go of held keys and
+    /// buttons meanwhile. Returns false if cancelled.
+    fn hold(&mut self, sends: Sends) -> bool {
+        let (blocked, mut waiting_app) = self.blocked(sends);
+        if !blocked {
             return true;
+        }
+        if waiting_app {
+            (self.on_wait)(true);
         }
         let keys: Vec<_> = self.held_keys.iter().copied().collect();
         let buttons: Vec<_> = self.held_buttons.iter().copied().collect();
@@ -499,10 +545,24 @@ impl Player<'_> {
         for b in &buttons {
             self.send(&[input::button_event(*b, false)]);
         }
-        while is_paused() {
+        loop {
+            let (blocked, app) = self.blocked(sends);
+            if !blocked {
+                break;
+            }
+            if app != waiting_app {
+                waiting_app = app;
+                (self.on_wait)(app);
+            }
             if !self.waiter.wait(PAUSE_POLL) {
+                if waiting_app {
+                    (self.on_wait)(false);
+                }
                 return false;
             }
+        }
+        if waiting_app {
+            (self.on_wait)(false);
         }
         for k in &keys {
             self.send(&[input::key_event(*k, true)]);
@@ -521,7 +581,15 @@ impl Player<'_> {
 
     /// Returns false when cancelled.
     fn run(&mut self, step: &Step) -> bool {
-        if self.waiter.is_cancelled() || !self.hold_while_paused() {
+        let sends = match step {
+            Step::Key { .. } | Step::Text { .. } => Sends::Keys,
+            Step::Click { at, .. } => Sends::MouseAt(*at),
+            Step::Scroll { .. } => Sends::MouseAt(None),
+            Step::Move { x, y } => Sends::MouseAt(Some((*x, *y))),
+            Step::Path { points } => Sends::MouseAt(points.first().map(|p| (p.x, p.y))),
+            Step::Wait { .. } | Step::WaitFor { .. } | Step::Repeat { .. } => Sends::Nothing,
+        };
+        if self.waiter.is_cancelled() || !self.hold(sends) {
             return false;
         }
         match step {

@@ -85,7 +85,7 @@ fn describe(hwnd: HWND) -> Option<WindowInfo> {
     }
 }
 
-fn exe_name(pid: u32) -> Option<String> {
+pub fn exe_name(pid: u32) -> Option<String> {
     unsafe {
         let proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
         let mut buf = [0u16; 1024];
