@@ -96,6 +96,9 @@ pub struct Settings {
     pub record: RecordOptions,
     /// Show the small always-on-top panel listing steps while recording.
     pub recording_overlay: bool,
+    /// Closing the window hides it to the tray (hotkeys and watches keep
+    /// working) instead of quitting.
+    pub close_to_tray: bool,
     pub webhook: WebhookSettings,
     pub watches: Vec<WatchRule>,
 }
@@ -110,6 +113,7 @@ impl Default for Settings {
             record_hotkey: Key::from_name("F9").map(Hotkey::key),
             record: RecordOptions::default(),
             recording_overlay: true,
+            close_to_tray: true,
             webhook: WebhookSettings::default(),
             watches: Vec::new(),
         }

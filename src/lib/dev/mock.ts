@@ -22,6 +22,7 @@ const settings: Settings = {
   recordHotkey: "F9",
   record: { recordMoves: false, minWaitMs: 1 },
   recordingOverlay: true,
+  closeToTray: true,
   webhook: { url: "", mentionUserId: "", notifyClickerFinished: true, notifyMacroFinished: true },
   watches: [
     {
@@ -254,6 +255,11 @@ export function install() {
           return;
         case "activity_status":
           return { playing, recording };
+        case "capture_template": {
+          await new Promise((r) => setTimeout(r, 600));
+          const px = new Uint8Array(40 * 24 * 4).map((_, i) => (i % 4 === 3 ? 255 : (i * 37) % 255));
+          return { w: 40, h: 24, data: btoa(String.fromCharCode(...px)) };
+        }
         case "pick_region":
           await new Promise((r) => setTimeout(r, 600));
           return { x: 706, y: 35, w: 320, h: 80 };
@@ -264,6 +270,7 @@ export function install() {
             text: "WAVE 12\n1.25e+25",
             number: 1.25e25,
             numbers: [12, 1.25e25],
+            found: a.condition.kind === "imageAppears" ? { x: 30, y: 20, score: 0.96 } : null,
             ocrRan: viewerChecks === 1,
             captureMs: 0.6,
             ocrMs: viewerChecks === 1 ? 19.7 : 0,

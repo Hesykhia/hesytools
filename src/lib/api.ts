@@ -53,12 +53,20 @@ export interface Region {
 
 export type Cmp = ">=" | "<=" | "==";
 
+/** A small picture to find on screen: base64 RGBA pixels. */
+export interface Template {
+  w: number;
+  h: number;
+  data: string;
+}
+
 export type Condition =
   /** digitsAfter: null = plain contains, 0 = exactly, N = exactly N more digits (e25 +1 = e250..e259). */
   | { kind: "textAppears"; text: string; digitsAfter?: number | null }
   | { kind: "textGone"; text: string; digitsAfter?: number | null }
   | { kind: "number"; op: Cmp; value: number }
   | { kind: "colorAt"; dx: number; dy: number; rgb: [number, number, number]; tolerance: number }
+  | { kind: "imageAppears"; template: Template; threshold: number }
   | { kind: "changes" };
 
 export interface Check {
@@ -66,6 +74,7 @@ export interface Check {
   text: string | null;
   number: number | null;
   numbers: number[];
+  found: { x: number; y: number; score: number } | null;
   ocrRan: boolean;
   captureMs: number;
   ocrMs: number;
@@ -156,6 +165,7 @@ export interface Settings {
   recordHotkey: string | null;
   record: RecordOptions;
   recordingOverlay: boolean;
+  closeToTray: boolean;
   webhook: WebhookSettings;
   watches: WatchRule[];
 }
@@ -184,6 +194,8 @@ export const api = {
   cancelPick: () => invoke<void>("cancel_pick"),
   clickerToggle: () => invoke<boolean>("clicker_toggle"),
   clickerStatus: () => invoke<ClickerStatus>("clicker_status"),
+  setCloseToTray: (on: boolean) => invoke<void>("set_close_to_tray", { on }),
+  quitApp: () => invoke<void>("quit_app"),
   setRecordingOverlay: (on: boolean) => invoke<void>("set_recording_overlay", { on }),
   screenLayout: () => invoke<Region[]>("screen_layout"),
   setRecordOptions: (options: RecordOptions) => invoke<void>("set_record_options", { options }),
@@ -198,6 +210,7 @@ export const api = {
   recordingStart: () => invoke<void>("recording_start"),
   recordingStop: () => invoke<void>("recording_stop"),
   pickRegion: () => invoke<Region | null>("pick_region"),
+  captureTemplate: () => invoke<Template | null>("capture_template"),
   viewerCheck: (region: Region, condition: Condition) => invoke<ViewerCheck>("viewer_check", { region, condition }),
   /** Raw bytes: u32 width, u32 height (little-endian), then RGBA pixels. */
   viewerFrame: (maxWidth: number) => invoke<ArrayBuffer>("viewer_frame", { maxWidth }),

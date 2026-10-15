@@ -6,6 +6,7 @@ pub mod clicker;
 pub mod elevation;
 pub mod hooks;
 pub mod hotkey;
+pub mod imagematch;
 pub mod import;
 pub mod input;
 pub mod keys;

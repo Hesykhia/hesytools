@@ -87,6 +87,18 @@
     onpickcolor(Math.floor(fx * region.w), Math.floor(fy * region.h), [px[0], px[1], px[2]]);
   }
 
+  // Box around the best image match, in % of the region.
+  let foundBox = $derived(
+    condition.kind === "imageAppears" && check?.found && region
+      ? {
+          left: `${(check.found.x / region.w) * 100}%`,
+          top: `${(check.found.y / region.h) * 100}%`,
+          width: `${(condition.template.w / region.w) * 100}%`,
+          height: `${(condition.template.h / region.h) * 100}%`,
+        }
+      : null,
+  );
+
   let marker = $derived(
     condition.kind === "colorAt" && region
       ? { left: `${((condition.dx + 0.5) / region.w) * 100}%`, top: `${((condition.dy + 0.5) / region.h) * 100}%` }
@@ -103,6 +115,16 @@
       <div class="img-wrap">
         <canvas bind:this={canvas} class:pickable={!!onpickcolor} onclick={pick}></canvas>
         {#if marker}<span class="marker" style:left={marker.left} style:top={marker.top}></span>{/if}
+        {#if foundBox}
+          <span
+            class="found"
+            class:yes={check?.matched}
+            style:left={foundBox.left}
+            style:top={foundBox.top}
+            style:width={foundBox.width}
+            style:height={foundBox.height}
+          ></span>
+        {/if}
       </div>
     {:else}
       <p>Select an area of the screen to see it here, live.</p>
@@ -130,6 +152,12 @@
                 none found
               {/each}
             </b>
+          </div>
+        {/if}
+        {#if condition.kind === "imageAppears"}
+          <div class="line">
+            <span>Best match</span>
+            <b>{check?.found ? `${Math.round(check.found.score * 100)}% alike at ${check.found.x}, ${check.found.y}` : "…"}</b>
           </div>
         {/if}
         <div class="line state" class:yes={check?.matched}>
@@ -233,6 +261,17 @@
       0 0 0 2px rgba(0, 0, 0, 0.6),
       0 0 10px rgba(255, 255, 255, 0.6);
     pointer-events: none;
+  }
+  .found {
+    position: absolute;
+    border: 2px dashed rgba(255, 191, 92, 0.9);
+    border-radius: 4px;
+    pointer-events: none;
+    transition: all 200ms var(--ease-smooth-out);
+  }
+  .found.yes {
+    border: 2px solid var(--mint);
+    box-shadow: 0 0 12px rgba(61, 242, 176, 0.6);
   }
   .readout {
     display: flex;

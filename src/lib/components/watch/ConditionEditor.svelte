@@ -1,7 +1,9 @@
 <script lang="ts">
-  import type { Cmp, Condition } from "$lib/api";
+  import { api, errorText, type Cmp, type Condition } from "$lib/api";
+  import { toast } from "$lib/toast.svelte";
   import InlineNumber from "../ui/InlineNumber.svelte";
   import Popover from "../ui/Popover.svelte";
+  import TemplateThumb from "./TemplateThumb.svelte";
 
   let { condition = $bindable() }: { condition: Condition } = $props();
 
@@ -10,11 +12,34 @@
     { kind: "textGone", label: "text disappears", hint: "e.g. “Loading” goes away" },
     { kind: "number", label: "a number reaches", hint: "coins ≥ 1e25, 12.5K, 3M…" },
     { kind: "colorAt", label: "a colour shows", hint: "a pixel turns a colour" },
+    { kind: "imageAppears", label: "an image appears", hint: "a button or icon shows up" },
     { kind: "changes", label: "anything changes", hint: "any pixel in the area" },
   ];
 
+  let grabbing = $state(false);
+  /** Drag a box around the button/icon to look for. */
+  async function grabImage(): Promise<boolean> {
+    grabbing = true;
+    try {
+      const template = await api.captureTemplate();
+      if (!template) return false;
+      const threshold = condition.kind === "imageAppears" ? condition.threshold : 0.9;
+      condition = { kind: "imageAppears", template, threshold };
+      return true;
+    } catch (e) {
+      toast(errorText(e), "error");
+      return false;
+    } finally {
+      grabbing = false;
+    }
+  }
+
   function setKind(kind: Condition["kind"]) {
     if (kind === condition.kind) return;
+    if (kind === "imageAppears") {
+      grabImage();
+      return;
+    }
     const text = "text" in condition ? condition.text : "";
     const digitsAfter = "text" in condition ? (condition.digitsAfter ?? null) : null;
     condition =
@@ -100,6 +125,13 @@
     <span class="soft">within</span>
     <InlineNumber value={c.tolerance} max={255} onchange={(v) => (c.tolerance = Math.round(v))} />
     <span class="soft">at pixel {c.dx}, {c.dy}</span>
+  {:else if condition.kind === "imageAppears"}
+    {@const c = condition}
+    <TemplateThumb template={c.template} />
+    <button class="chip soft" onclick={grabImage}>{grabbing ? "selecting…" : "change"}</button>
+    <span class="soft">at least</span>
+    <InlineNumber value={Math.round(c.threshold * 100)} min={50} max={100} onchange={(v) => (c.threshold = v / 100)} />
+    <span class="soft">% alike</span>
   {/if}
 </span>
 

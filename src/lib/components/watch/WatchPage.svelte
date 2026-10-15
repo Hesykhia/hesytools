@@ -96,7 +96,9 @@
             ? `number ${c.op} ${c.value}`
             : c.kind === "colorAt"
               ? "a colour shows"
-              : "anything changes";
+              : c.kind === "imageAppears"
+                ? "an image appears"
+                : "anything changes";
     const then =
       r.action.kind === "runMacro"
         ? `run ${activity.macros.find((m) => m.id === (r.action as { macroId: string }).macroId)?.name ?? "a macro"}`

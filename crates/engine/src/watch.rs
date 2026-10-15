@@ -5,6 +5,7 @@
 //! static screen therefore costs almost nothing however often it's polled.
 
 use crate::capture::{self, Frame, Region};
+use crate::imagematch::{self, Gray, Template};
 use crate::ocr::Ocr;
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
@@ -49,6 +50,9 @@ pub enum Condition {
     /// The pixel at (dx, dy) inside the region is within `tolerance` of `rgb`.
     #[serde(rename_all = "camelCase")]
     ColorAt { dx: u32, dy: u32, rgb: [u8; 3], tolerance: u8 },
+    /// A picture (button, icon...) shows up anywhere in the region, at
+    /// least `threshold` similar (0..1, ~0.9 is a good start).
+    ImageAppears { template: Template, threshold: f64 },
     /// Anything in the region changed since watching began.
     Changes,
 }
@@ -69,6 +73,9 @@ pub struct Check {
     pub number: Option<f64>,
     /// Every number found in the text.
     pub numbers: Vec<f64>,
+    /// Image conditions: best match position (inside the region) and how
+    /// similar it was.
+    pub found: Option<imagematch::Found>,
     /// Whether this check had to run OCR (false = pixels unchanged, reused).
     pub ocr_ran: bool,
     pub capture_ms: f64,
@@ -79,6 +86,7 @@ pub struct Watcher {
     pub region: Region,
     pub condition: Condition,
     ocr: Option<Ocr>,
+    template: Option<Gray>,
     last_fp: Option<u64>,
     baseline_fp: Option<u64>,
     last: Option<Check>,
@@ -89,7 +97,11 @@ pub struct Watcher {
 impl Watcher {
     pub fn new(region: Region, condition: Condition) -> Result<Self, String> {
         let ocr = if condition.needs_ocr() { Some(Ocr::new()?) } else { None };
-        Ok(Self { region, condition, ocr, last_fp: None, baseline_fp: None, last: None, frame: None })
+        let template = match &condition {
+            Condition::ImageAppears { template, .. } => Some(template.gray()?),
+            _ => None,
+        };
+        Ok(Self { region, condition, ocr, template, last_fp: None, baseline_fp: None, last: None, frame: None })
     }
 
     pub fn check(&mut self) -> Result<Check, String> {
@@ -108,6 +120,18 @@ impl Watcher {
                     p.iter().zip(rgb).all(|(a, b)| (*a as i16 - *b as i16).unsigned_abs() <= *tolerance as u16)
                 });
                 Check { matched, ..empty(capture_ms) }
+            }
+            Condition::ImageAppears { threshold, .. } => {
+                if unchanged && let Some(prev) = &self.last {
+                    Check { capture_ms, ..prev.clone() }
+                } else {
+                    let tpl = self.template.as_ref().ok_or("No image to look for")?;
+                    let t = Instant::now();
+                    let found = imagematch::find(&Gray::from_frame(&frame), tpl);
+                    let ms = t.elapsed().as_secs_f64() * 1000.0;
+                    let matched = found.is_some_and(|f| f.score >= *threshold);
+                    Check { matched, found, ocr_ms: ms, ..empty(capture_ms) }
+                }
             }
             cond => {
                 if unchanged && let Some(prev) = &self.last {
@@ -130,7 +154,7 @@ impl Watcher {
                         _ => unreachable!(),
                     };
                     let number = hit.or(numbers.first().copied());
-                    Check { matched, text: Some(text), number, numbers, ocr_ran: true, capture_ms, ocr_ms }
+                    Check { matched, text: Some(text), number, numbers, found: None, ocr_ran: true, capture_ms, ocr_ms }
                 }
             }
         };
@@ -141,7 +165,7 @@ impl Watcher {
 }
 
 fn empty(capture_ms: f64) -> Check {
-    Check { matched: false, text: None, number: None, numbers: Vec::new(), ocr_ran: false, capture_ms, ocr_ms: 0.0 }
+    Check { matched: false, text: None, number: None, numbers: Vec::new(), found: None, ocr_ran: false, capture_ms, ocr_ms: 0.0 }
 }
 
 fn contains_any(haystack: &str, phrases: &str, digits_after: Option<u32>) -> bool {

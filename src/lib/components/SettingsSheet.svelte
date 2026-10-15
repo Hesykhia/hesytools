@@ -162,6 +162,30 @@
         </div>
       </div>
 
+      <div class="group">
+        <div class="row">
+          <span class="icon tray">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15h4l2 3h4l2-3h4M4 15V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></svg>
+          </span>
+          <div class="text">
+            <b>Keep running in the tray</b>
+            <small>Closing the window keeps hotkeys and watches working. Quit from the tray icon.</small>
+          </div>
+          <Toggle
+            checked={settings.closeToTray}
+            onchange={async (v) => {
+              await api.setCloseToTray(v);
+              settings.closeToTray = v;
+            }}
+            label="Keep running in the tray"
+          />
+        </div>
+        <div class="row second">
+          <div class="text"><small class="plain">Fully exit hesytools now (stops hotkeys and watches)</small></div>
+          <button class="btn" onclick={() => api.quitApp()}>Quit</button>
+        </div>
+      </div>
+
       <p class="ver">hesytools {info?.version ?? ""}</p>
     </div>
   </div>
@@ -289,6 +313,10 @@
     margin-top: 14px;
     padding-top: 14px;
     border-top: 1px solid var(--stroke);
+  }
+  .icon.tray {
+    color: #8fb0ff;
+    background: rgba(91, 140, 255, 0.14);
   }
   .icon.discord {
     color: #8e97ff;

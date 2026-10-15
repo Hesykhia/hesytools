@@ -19,7 +19,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::{MouseButton as TrayButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 const HK_CLICKER: &str = "clicker";
 const HK_PANIC: &str = "panic";
@@ -409,6 +411,7 @@ fn describe_watch(rule: &WatchRule) -> String {
             format!("The number reached {op} {value}")
         }
         Condition::ColorAt { .. } => "The colour matched".into(),
+        Condition::ImageAppears { .. } => "The image appeared".into(),
         Condition::Changes => "The area changed".into(),
     };
     let action = match &rule.action {
@@ -655,6 +658,17 @@ async fn tokio_sleep(ms: u64) {
     let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(Duration::from_millis(ms))).await;
 }
 
+/// Drag a box around a button/icon; returns it as an image to look for.
+#[tauri::command]
+async fn capture_template(app: AppHandle) -> Result<Option<engine::imagematch::Template>, String> {
+    let Some(region) = pick_region(app).await? else { return Ok(None) };
+    if region.w > 400 || region.h > 400 {
+        return Err("That's quite big for an image to find; select just the button or icon".into());
+    }
+    let frame = engine::capture::capture(region)?;
+    Ok(Some(engine::imagematch::Template::from_frame(&frame)))
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ViewerCheck {
@@ -760,6 +774,63 @@ fn relaunch_as_admin(app: AppHandle, a: AppState) -> Result<(), String> {
     Ok(())
 }
 
+fn show_main(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+fn quit(app: &AppHandle) {
+    if let Some(a) = app.try_state::<Arc<App>>() {
+        stop_everything(app, &a);
+        a.watches.stop_all();
+    }
+    app.exit(0);
+}
+
+fn build_tray(app: &tauri::App) -> tauri::Result<()> {
+    let show = MenuItem::with_id(app, "show", "Show hesytools", true, None::<&str>)?;
+    let stop = MenuItem::with_id(app, "stop", "Stop everything", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &stop, &PredefinedMenuItem::separator(app)?, &quit_item])?;
+    let mut tray = TrayIconBuilder::with_id("main")
+        .tooltip("hesytools")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, e| match e.id.as_ref() {
+            "show" => show_main(app),
+            "stop" => {
+                if let Some(a) = app.try_state::<Arc<App>>() {
+                    stop_everything(app, &a);
+                }
+            }
+            "quit" => quit(app),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, e| {
+            if let TrayIconEvent::Click { button: TrayButton::Left, button_state: MouseButtonState::Up, .. } = e {
+                show_main(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn set_close_to_tray(a: AppState, on: bool) -> Result<(), String> {
+    a.update(|s| s.close_to_tray = on).map(|_| ())
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    quit(&app);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     elevation::wait_for_previous_instance();
@@ -799,7 +870,25 @@ pub fn run() {
             apply_hotkeys(&a);
             sync_watches(app.handle(), &a);
             app.manage(a);
+            build_tray(app)?;
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Closing the main window hides it to the tray so hotkeys and
+            // watches keep running; "Quit" in the tray menu really exits.
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() != "main" {
+                    return;
+                }
+                let app = window.app_handle();
+                let to_tray = app.try_state::<Arc<App>>().is_some_and(|a| a.settings.lock().close_to_tray);
+                if to_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+                } else {
+                    quit(app);
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             get_settings,
@@ -823,8 +912,11 @@ pub fn run() {
             recording_start,
             recording_stop,
             set_recording_overlay,
+            set_close_to_tray,
+            quit_app,
             screen_layout,
             pick_region,
+            capture_template,
             viewer_check,
             viewer_frame,
             viewer_stop,
