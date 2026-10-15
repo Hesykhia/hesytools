@@ -79,6 +79,7 @@ function fakeFrame(maxWidth: number): ArrayBuffer {
 }
 
 let viewerChecks = 0;
+let shutdownTimer: { endsAt: number; restart: boolean } | null = null;
 
 let macros: Macro[] = [
   {
@@ -298,6 +299,16 @@ export function install() {
         case "set_recording_overlay":
           settings.recordingOverlay = a.on;
           return;
+        case "schedule_shutdown":
+          shutdownTimer = { endsAt: Date.now() + a.minutes * 60000, restart: a.restart };
+          await emit("shutdown-state", shutdownTimer);
+          return shutdownTimer;
+        case "cancel_shutdown":
+          shutdownTimer = null;
+          await emit("shutdown-state", null);
+          return;
+        case "shutdown_status":
+          return shutdownTimer;
         case "check_update":
           return new URLSearchParams(location.search).get("scene") === "update"
             ? {

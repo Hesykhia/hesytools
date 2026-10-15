@@ -9,6 +9,8 @@
   import Tabs from "./ui/Tabs.svelte";
   import Toggle from "./ui/Toggle.svelte";
   import { checkForUpdates, update } from "$lib/update.svelte";
+  import { cancelShutdown, remaining, shutdown, startShutdown } from "$lib/shutdown.svelte";
+  import InlineNumber from "./ui/InlineNumber.svelte";
 
   let { settings = $bindable(), info }: { settings: Settings; info: SystemInfo | null } = $props();
 
@@ -47,6 +49,11 @@
       await api.setStartupMacro(v);
       settings.startupMacro = v;
     });
+
+  // ── Shutdown timer ───────────────────────────────────────────────────────
+  let shutMinutes = $state(30);
+  let shutRestart = $state(false);
+  const SHUT_PRESETS = [5, 15, 30, 60, 120];
 
   // ── Discord ──────────────────────────────────────────────────────────────
   // svelte-ignore state_referenced_locally
@@ -150,6 +157,45 @@
     </div>
 
     <div class="col">
+      <section class="group glass" class:armed={shutdown.timer}>
+        <h3>Shut down PC</h3>
+        {#if shutdown.timer}
+          <div class="armed-row">
+            <div class="text">
+              <b class="countdown">{remaining(shutdown.timer, shutdown.now)}</b>
+              <small>until your PC {shutdown.timer.restart ? "restarts" : "shuts down"}</small>
+            </div>
+            <button class="btn primary" onclick={cancelShutdown}>Cancel</button>
+          </div>
+        {:else}
+          <p class="sub">Leave something running and let hesytools turn the PC off when it's done.</p>
+          <div class="shut-line">
+            <Tabs
+              size="s"
+              value={shutRestart ? "restart" : "shutdown"}
+              onchange={(v) => (shutRestart = v === "restart")}
+              options={[
+                { value: "shutdown", label: "Shut down" },
+                { value: "restart", label: "Restart" },
+              ]}
+            />
+            <span class="soft">in</span>
+            <InlineNumber value={shutMinutes} min={1} max={14400} onchange={(v) => (shutMinutes = Math.round(v))} />
+            <span class="soft">minutes</span>
+            <span class="spacer"></span>
+            <button class="btn primary" onclick={() => startShutdown(shutMinutes, shutRestart)}>Start</button>
+          </div>
+          <div class="presets">
+            {#each SHUT_PRESETS as m}
+              <button class="preset" class:on={shutMinutes === m} onclick={() => (shutMinutes = m)}>
+                {m < 60 ? `${m} min` : `${m / 60} h`}
+              </button>
+            {/each}
+          </div>
+        {/if}
+        <p class="warn-note">Other apps are closed when it goes off, so save anything you're working on. The panic key cancels it.</p>
+      </section>
+
       <section class="group glass">
         <h3>Startup &amp; tray</h3>
         <div class="row">
@@ -391,6 +437,64 @@
     background: rgba(61, 242, 176, 0.12);
     padding: 1px 8px;
     border-radius: 99px;
+  }
+  .group.armed {
+    border-color: rgba(255, 92, 112, 0.45);
+    box-shadow: 0 0 40px -18px rgba(255, 92, 112, 0.7);
+  }
+  .armed-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 0 4px;
+  }
+  .countdown {
+    font-size: 28px !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    color: #ff9aa8;
+  }
+  .shut-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0 10px;
+    font-size: 14px;
+  }
+  .soft {
+    color: var(--text-3);
+  }
+  .spacer {
+    flex: 1;
+  }
+  .presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .preset {
+    font-size: 12px;
+    font-weight: 550;
+    padding: 4px 11px;
+    border-radius: 999px;
+    background: var(--glass);
+    border: 1px solid var(--stroke);
+    color: var(--text-2);
+  }
+  .preset:hover {
+    color: var(--text);
+  }
+  .preset.on {
+    color: var(--text);
+    border-color: rgba(139, 108, 255, 0.6);
+    background: rgba(139, 108, 255, 0.18);
+  }
+  .warn-note {
+    font-size: 11.5px;
+    color: var(--text-3);
+    margin-top: 10px;
   }
   .about p {
     font-size: 12.5px;

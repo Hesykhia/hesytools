@@ -191,6 +191,12 @@ export interface SystemInfo {
   version: string;
 }
 
+export interface ShutdownTimer {
+  /** Unix ms when the PC shuts down / restarts. */
+  endsAt: number;
+  restart: boolean;
+}
+
 export interface UpdateInfo {
   version: string;
   currentVersion: string;
@@ -222,6 +228,9 @@ export const api = {
   setStartupMacro: (id: string | null) => invoke<void>("set_startup_macro", { id }),
   /** Eyedropper: next click on screen returns that pixel's colour. */
   pickColor: () => invoke<[number, number, number] | null>("pick_color"),
+  scheduleShutdown: (minutes: number, restart: boolean) => invoke<ShutdownTimer>("schedule_shutdown", { minutes, restart }),
+  cancelShutdown: () => invoke<void>("cancel_shutdown"),
+  shutdownStatus: () => invoke<ShutdownTimer | null>("shutdown_status"),
   checkUpdate: () => invoke<UpdateInfo | null>("check_update"),
   installUpdate: () => invoke<void>("install_update"),
   setAutoCheckUpdates: (on: boolean) => invoke<void>("set_auto_check_updates", { on }),
@@ -328,4 +337,8 @@ export function hotkeyWarning(combo: string | null): string | null {
 
 export function onUpdateProgress(cb: (p: UpdateProgress) => void): Promise<UnlistenFn> {
   return listen<UpdateProgress>("update-progress", (e) => cb(e.payload));
+}
+
+export function onShutdownState(cb: (t: ShutdownTimer | null) => void): Promise<UnlistenFn> {
+  return listen<ShutdownTimer | null>("shutdown-state", (e) => cb(e.payload));
 }

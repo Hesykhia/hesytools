@@ -24,6 +24,7 @@
   import SettingsPage from "$lib/components/SettingsPage.svelte";
   import UpdateCard from "$lib/components/UpdateCard.svelte";
   import { checkForUpdates } from "$lib/update.svelte";
+  import { initShutdown, remaining, shutdown } from "$lib/shutdown.svelte";
 
   type Page = "macros" | "watch" | "settings";
   const ORDER: Page[] = ["macros", "watch", "settings"];
@@ -75,6 +76,7 @@
       onToast((m) => toast(m)),
       onClickerState((r) => (running = r)),
       initActivity(),
+      initShutdown(),
       // The backend changed something itself (a hotkey moved, panic turned
       // watches off): pick it up.
       onSettingsChanged((s) => {
@@ -108,6 +110,14 @@
     </div>
     {/if}
     {#snippet right()}
+      {#if shutdown.timer}
+        <button class="shut-pill" onclick={() => go("settings")} title="Shutdown timer: click to change or cancel">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
+            ><path d="M12 3v8M6.4 6.4a8 8 0 1 0 11.2 0" /></svg
+          >
+          {remaining(shutdown.timer, shutdown.now)}
+        </button>
+      {/if}
       <button class="gear" class:on={page === "settings"} aria-label="Settings" title="Settings" onclick={() => go(page === "settings" ? "macros" : "settings")}>
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
@@ -183,6 +193,24 @@
     transition:
       color var(--duration-quick) var(--ease-smooth-out),
       transform 400ms var(--ease-smooth-out);
+  }
+  .shut-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 12px;
+    margin-right: 8px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    color: #ffb3bd;
+    background: rgba(255, 92, 112, 0.12);
+    border: 1px solid rgba(255, 92, 112, 0.45);
+  }
+  .shut-pill:hover {
+    background: rgba(255, 92, 112, 0.2);
   }
   .gear.on {
     color: var(--violet-2);

@@ -54,6 +54,16 @@ struct App {
     watches: WatchRunner,
     /// An update found by `check_update`, waiting for "Update now".
     pending_update: Mutex<Option<tauri_plugin_updater::Update>>,
+    /// The shutdown/restart timer hesytools set, if any.
+    shutdown: Mutex<Option<ShutdownTimer>>,
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ShutdownTimer {
+    /// Unix ms when Windows will shut down / restart.
+    ends_at: u64,
+    restart: bool,
 }
 
 type AppState<'a> = State<'a, Arc<App>>;
@@ -273,6 +283,9 @@ fn on_hotkey(app: &AppHandle, id: &str, pressed: bool) {
     let result = match id {
         HK_PANIC if pressed => {
             stop_everything(app, &a);
+            if a.shutdown.lock().take().is_some() && engine::power::cancel().is_ok() {
+                let _ = app.emit("shutdown-state", Option::<ShutdownTimer>::None);
+            }
             // Watches could immediately restart a macro, so they go off too.
             let had_watches = a.settings.lock().watches.iter().any(|w| w.enabled);
             if had_watches {
@@ -944,6 +957,39 @@ async fn pick_color() -> Result<Option<[u8; 3]>, String> {
     .map_err(|e| e.to_string())?
 }
 
+// ── Shutdown timer ──────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn schedule_shutdown(app: AppHandle, a: AppState, minutes: f64, restart: bool) -> Result<ShutdownTimer, String> {
+    if !(minutes > 0.0) {
+        return Err("Pick how many minutes to wait".into());
+    }
+    let secs = (minutes * 60.0).round() as u64;
+    engine::power::schedule(secs, restart)?;
+    let timer = ShutdownTimer { ends_at: macro_store::now_ms() + secs * 1000, restart };
+    *a.shutdown.lock() = Some(timer);
+    let _ = app.emit("shutdown-state", Some(timer));
+    Ok(timer)
+}
+
+#[tauri::command]
+fn cancel_shutdown(app: AppHandle, a: AppState) -> Result<(), String> {
+    a.shutdown.lock().take();
+    let _ = app.emit("shutdown-state", Option::<ShutdownTimer>::None);
+    // If Windows had nothing pending (e.g. it was cancelled elsewhere), fine.
+    let _ = engine::power::cancel();
+    Ok(())
+}
+
+#[tauri::command]
+fn shutdown_status(a: AppState) -> Option<ShutdownTimer> {
+    let mut slot = a.shutdown.lock();
+    if slot.is_some_and(|t| t.ends_at <= macro_store::now_ms()) {
+        *slot = None;
+    }
+    *slot
+}
+
 // ── Updates ─────────────────────────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -1067,6 +1113,7 @@ pub fn run() {
                 viewers: Mutex::new(Default::default()),
                 watches: WatchRunner::default(),
                 pending_update: Mutex::new(None),
+                shutdown: Mutex::new(None),
             });
             apply_hotkeys(&a);
             sync_watches(app.handle(), &a);
@@ -1140,6 +1187,9 @@ pub fn run() {
             recording_stop,
             set_recording_overlay,
             set_close_to_tray,
+            schedule_shutdown,
+            cancel_shutdown,
+            shutdown_status,
             check_update,
             install_update,
             set_auto_check_updates,

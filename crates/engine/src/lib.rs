@@ -14,6 +14,7 @@ pub mod macros;
 pub mod ocr;
 pub mod outline;
 pub mod picker;
+pub mod power;
 pub mod startup;
 pub mod timer;
 pub mod watch;
