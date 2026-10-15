@@ -5,6 +5,7 @@
   import {
     api,
     errorText,
+    MIN_INTERVAL_MS,
     MOUSE_BUTTONS,
     onClickerState,
     type ClickerConfig,
@@ -26,6 +27,10 @@
   // svelte-ignore state_referenced_locally
   let cfg = $state<ClickerConfig>($state.snapshot(settings.clicker));
   cfg.double ??= false;
+  cfg.allowFast ??= false;
+  let minMs = $derived(cfg.allowFast ? 1 : MIN_INTERVAL_MS);
+  // Older configs could be set faster than the limit.
+  if (!cfg.allowFast && cfg.intervalMs < MIN_INTERVAL_MS) cfg.intervalMs = MIN_INTERVAL_MS;
 
   // ── Persist edits (debounced) ────────────────────────────────────────────
   // Cleared number inputs come through as null; never send those to Rust.
@@ -34,7 +39,7 @@
     return v === null || v === "" || !Number.isFinite(n) ? fallback : Math.max(min, n);
   };
   function sanitize(c: ClickerConfig): ClickerConfig {
-    const out = { ...c, holdMs: num(c.holdMs, 0), jitterMs: num(c.jitterMs, 0), intervalMs: num(c.intervalMs, 100, 1) };
+    const out = { ...c, holdMs: num(c.holdMs, 0), jitterMs: num(c.jitterMs, 0), intervalMs: num(c.intervalMs, 100, c.allowFast ? 1 : MIN_INTERVAL_MS) };
     if (out.position.kind === "fixed")
       out.position = { kind: "fixed", x: Math.round(num(out.position.x, 0, -1e6)), y: Math.round(num(out.position.y, 0, -1e6)) };
     if (out.stopAfter.kind === "clicks") out.stopAfter = { kind: "clicks", count: Math.round(num(out.stopAfter.count, 1, 1)) };
@@ -81,15 +86,21 @@
     const v = Math.max(0, Math.floor(Number(raw) || 0));
     const next = { ...parts, [key]: v };
     const total = UNITS.reduce((sum, u) => sum + next[u.key] * u.ms, 0);
-    cfg.intervalMs = Math.max(1, Math.min(total, 24 * 3_600_000));
+    cfg.intervalMs = Math.max(minMs, Math.min(total, 24 * 3_600_000));
   }
-  const PRESETS = [
-    { label: "1 ms", ms: 1 },
+  let presets = $derived([
+    ...(cfg.allowFast ? [{ label: "1 ms", ms: 1 }] : []),
+    { label: "8 ms", ms: 8 },
     { label: "10 ms", ms: 10 },
-    { label: "50 ms", ms: 50 },
+    // Keeps the row on one line when 1 ms is showing.
+    ...(cfg.allowFast ? [] : [{ label: "50 ms", ms: 50 }]),
     { label: "100 ms", ms: 100 },
     { label: "1 s", ms: 1000 },
-  ];
+  ]);
+  function setAllowFast(on: boolean) {
+    cfg.allowFast = on;
+    if (!on && cfg.intervalMs < MIN_INTERVAL_MS) cfg.intervalMs = MIN_INTERVAL_MS;
+  }
 
   // ── The sentence ──────────────────────────────────────────────────────────
   const BUTTON: Record<string, string> = {
@@ -346,11 +357,21 @@
           milliseconds
         </label>
         <div class="presets">
-          {#each PRESETS as p}
+          {#each presets as p}
             <button class="preset" class:on={cfg.intervalMs === p.ms} onclick={() => (cfg.intervalMs = p.ms)}>{p.label}</button>
           {/each}
         </div>
         <p class="note">= {perSecond} clicks per second. Some games cap how fast they read input.</p>
+        <label class="check fast">
+          <input type="checkbox" checked={cfg.allowFast} onchange={(e) => setAllowFast(e.currentTarget.checked)} />
+          Allow faster than {MIN_INTERVAL_MS} ms
+        </label>
+        {#if cfg.allowFast}
+          <p class="note warn">
+            Most apps can't keep up past this. They queue the clicks, so clicks land where your cursor used to be, the app
+            can freeze, and clicking keeps going after you stop until it catches up.
+          </p>
+        {/if}
       {/snippet}
     </Popover>
 
@@ -687,6 +708,13 @@
     margin-top: 10px;
     font-size: 12px;
     color: var(--text-3);
+  }
+  .check.fast {
+    margin: 12px 0 0;
+  }
+  .note.warn {
+    margin-top: 6px;
+    color: var(--amber);
   }
   .option {
     width: 100%;

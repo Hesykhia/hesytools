@@ -34,7 +34,12 @@ export interface ClickerConfig {
   stopAfter: StopAfter;
   /** Double-click each time. */
   double: boolean;
+  /** Allow intervals below MIN_INTERVAL_MS. */
+  allowFast?: boolean;
 }
+
+/** Faster than this, most apps queue clicks up (see clicker.rs). */
+export const MIN_INTERVAL_MS = 8;
 
 export type HotkeyMode = "toggle" | "hold";
 

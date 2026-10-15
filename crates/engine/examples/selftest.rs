@@ -75,6 +75,7 @@ fn main() {
                 interval_ms: interval,
                 hold_ms: 0.0,
                 stop_after: StopAfter::Seconds { secs },
+                allow_fast: true,
                 ..Default::default()
             }, |_| {})
             .unwrap();

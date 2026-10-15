@@ -56,7 +56,14 @@ pub struct ClickerConfig {
     /// Double-click each time (two presses close together), like OP Auto
     /// Clicker's "click type: double".
     pub double: bool,
+    /// Let the interval go below MIN_INTERVAL_MS.
+    pub allow_fast: bool,
 }
+
+/// Browsers and most apps can't take clicks much faster than this. Past it
+/// they queue them up: clicks land where the cursor used to be and keep
+/// coming for seconds after the clicker has stopped.
+pub const MIN_INTERVAL_MS: f64 = 8.0;
 
 /// Gap between the two presses of a double click.
 const DOUBLE_GAP: Duration = Duration::from_millis(30);
@@ -71,6 +78,7 @@ impl Default for ClickerConfig {
             position: ClickPosition::Current,
             stop_after: StopAfter::Never,
             double: false,
+            allow_fast: false,
         }
     }
 }
@@ -172,7 +180,8 @@ impl Drop for Clicker {
 }
 
 fn click_loop(cfg: &ClickerConfig, w: &Waiter, shared: &Shared) {
-    let interval = cfg.interval_ms.max(0.5);
+    let floor = if cfg.allow_fast { 0.5 } else { MIN_INTERVAL_MS };
+    let interval = cfg.interval_ms.max(floor);
     // A hold longer than the interval would merge clicks into one long press.
     let hold = Duration::from_secs_f64(cfg.hold_ms.clamp(0.0, interval * 0.5) / 1000.0);
     let jitter = cfg.jitter_ms.clamp(0.0, interval * 0.9);
@@ -227,7 +236,7 @@ fn click_loop(cfg: &ClickerConfig, w: &Waiter, shared: &Shared) {
         shared.clicks.store(count, Ordering::Relaxed);
 
         let offset = if jitter > 0.0 { rng.uniform(-jitter, jitter) } else { 0.0 };
-        next += Duration::from_secs_f64((interval + offset) / 1000.0);
+        next += Duration::from_secs_f64((interval + offset).max(floor) / 1000.0);
         let now = Instant::now();
         // After a long stall (system hiccup, debugger) don't fire a burst of
         // catch-up clicks; resume the normal rhythm from now.
