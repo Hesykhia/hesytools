@@ -197,6 +197,18 @@ impl Watcher {
     }
 }
 
+/// Screen point of what `check` found: the image's centre or the matching
+/// pixel; text has no position, so the middle of the area.
+pub fn found_point(condition: &Condition, check: &Check, region: Region) -> (i32, i32) {
+    let (dx, dy) = match (condition, check.found) {
+        (Condition::ImageAppears { template, .. }, Some(f)) => (f.x + template.w / 2, f.y + template.h / 2),
+        (Condition::ColorAppears { .. }, Some(f)) => (f.x, f.y),
+        (Condition::ColorAt { dx, dy, .. }, _) => (*dx, *dy),
+        _ => (region.w / 2, region.h / 2),
+    };
+    (check.origin.0 + dx as i32, check.origin.1 + dy as i32)
+}
+
 fn close(p: [u8; 3], rgb: [u8; 3], tolerance: u8) -> bool {
     p.iter().zip(rgb).all(|(a, b)| a.abs_diff(b) <= tolerance)
 }

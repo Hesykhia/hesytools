@@ -90,6 +90,7 @@ fn convert(ev: &Value) -> Option<Step> {
                 action: if pressed { PressAction::Down } else { PressAction::Up },
                 hold_ms: 0.0,
                 at: Some((int("x"), int("y"))),
+                at_found: false,
             })
         }
         "mouse_scroll" => Some(Step::Scroll { amount: (num("dy") * 120.0).round() as i32, horizontal: false }),
@@ -119,6 +120,7 @@ fn convert(ev: &Value) -> Option<Step> {
                 poll_ms: ev["poll_ms"].as_f64().unwrap_or(250.0).max(50.0),
                 // The old player carried on after a timeout.
                 on_timeout: OnTimeout::Continue,
+                window: None,
             })
         }
         _ => None,

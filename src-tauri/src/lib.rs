@@ -155,6 +155,7 @@ fn play_macro_by_id(app: &AppHandle, a: &Arc<App>, id: &str) -> Result<(), Strin
                     }
                 },
                 waiting,
+                &|id: &str| a2.macros.lock().iter().find(|m| m.id == id).cloned(),
             );
             let _ = handle.emit("macro-waiting", false);
             let _ = handle.emit("macro-state", Option::<String>::None);
@@ -575,18 +576,9 @@ fn resume_macros(app: &AppHandle, a: &App, holder: &str) {
     }
 }
 
-/// Screen point of what a watch found: the image's centre or the matching
-/// pixel; text has no position, so the middle of the area. Uses where the
-/// area was at this check, which follows the window for app-only watches.
+/// Screen point of what a watch found (follows the window for app-only watches).
 fn found_point(rule: &WatchRule, condition: &Condition, check: &Check) -> (i32, i32) {
-    let r = rule.region;
-    let (dx, dy) = match (condition, check.found) {
-        (Condition::ImageAppears { template, .. }, Some(f)) => (f.x + template.w / 2, f.y + template.h / 2),
-        (Condition::ColorAppears { .. }, Some(f)) => (f.x, f.y),
-        (Condition::ColorAt { dx, dy, .. }, _) => (*dx, *dy),
-        _ => (r.w / 2, r.h / 2),
-    };
-    (check.origin.0 + dx as i32, check.origin.1 + dy as i32)
+    engine::watch::found_point(condition, check, rule.region)
 }
 
 /// Click at a point like a person would (held long enough for games to

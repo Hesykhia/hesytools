@@ -73,6 +73,10 @@ pub enum Step {
         /// Move here first; `None` clicks wherever the cursor is.
         #[serde(default)]
         at: Option<(i32, i32)>,
+        /// Click where the last screen check (wait for / if / repeat until)
+        /// found its image or colour, instead of `at`.
+        #[serde(default)]
+        at_found: bool,
     },
     Move { x: i32, y: i32 },
     /// Recorded mouse movement, replayed with its original timing.
@@ -84,6 +88,9 @@ pub enum Step {
         horizontal: bool,
     },
     Wait { ms: f64 },
+    /// Wait a random time between the two, so timing isn't robotic.
+    #[serde(rename_all = "camelCase")]
+    RandomWait { min_ms: f64, max_ms: f64 },
     /// Types text as Unicode characters (great for chat and forms; some
     /// games only accept real keys, so use Key steps there).
     Text { text: String },
@@ -101,7 +108,38 @@ pub enum Step {
         poll_ms: f64,
         #[serde(default)]
         on_timeout: OnTimeout,
+        /// Only look at this app's window (region is then relative to it).
+        #[serde(default)]
+        window: Option<crate::window::WindowTarget>,
     },
+    /// Check the screen once: run `then` if it matches, else `otherwise`.
+    If {
+        region: Region,
+        #[serde(default)]
+        window: Option<crate::window::WindowTarget>,
+        condition: Condition,
+        #[serde(default)]
+        then: Vec<Step>,
+        #[serde(default)]
+        otherwise: Vec<Step>,
+    },
+    /// Run `steps` over and over until the screen matches (checked before
+    /// each round). `max` rounds at most; 0 = no limit.
+    #[serde(rename_all = "camelCase")]
+    RepeatUntil {
+        region: Region,
+        #[serde(default)]
+        window: Option<crate::window::WindowTarget>,
+        condition: Condition,
+        steps: Vec<Step>,
+        #[serde(default)]
+        max: u32,
+    },
+    /// Play another saved macro here, then carry on.
+    #[serde(rename_all = "camelCase")]
+    RunMacro { macro_id: String },
+    /// End the macro here (normally inside an If).
+    Stop,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -149,6 +187,8 @@ impl Macro {
                     Step::Click { action: PressAction::Tap, hold_ms, .. } => *hold_ms,
                     Step::Path { points } => points.last().map_or(0.0, |p| p.t),
                     Step::Repeat { times, steps } => dur(steps) * (*times).max(1) as f64,
+                    Step::RandomWait { min_ms, max_ms } => (min_ms + max_ms) / 2.0,
+                    Step::If { then, .. } => dur(then),
                     // Screen waits take as long as the screen takes: not counted.
                     _ => 0.0,
                 })
@@ -241,7 +281,7 @@ pub fn events_to_steps(events: &[InputEvent], opts: &RecordOptions) -> Vec<Step>
                     continue;
                 }
                 let action = if down { PressAction::Down } else { PressAction::Up };
-                raw.push((ev.at, Step::Click { button, action, hold_ms: 0.0, at: Some((ev.x, ev.y)) }));
+                raw.push((ev.at, Step::Click { button, action, hold_ms: 0.0, at: Some((ev.x, ev.y)), at_found: false }));
             }
             InputKind::Wheel { amount, horizontal } => {
                 flush_path(&mut path, &mut raw);
@@ -306,7 +346,7 @@ pub(crate) fn merge_taps(steps: Vec<Step>) -> Vec<Step> {
             (
                 Step::Click { button, action: PressAction::Down, at, .. },
                 Some(Step::Click { button: b2, action: PressAction::Up, .. }),
-            ) if button == b2 => Some(Step::Click { button: *button, action: PressAction::Tap, hold_ms: hold, at: *at }),
+            ) if button == b2 => Some(Step::Click { button: *button, action: PressAction::Tap, hold_ms: hold, at: *at, at_found: false }),
             _ => None,
         };
         match merged {
@@ -413,16 +453,28 @@ const WAIT_SLICE: Duration = Duration::from_millis(25);
 /// cancelled. `on_step(index, iteration)` fires as each top-level step starts.
 /// Anything still held down is released at the end, no matter what.
 pub fn play(m: &Macro, waiter: &Waiter, on_step: impl FnMut(usize, u32)) -> PlayResult {
-    play_with(m, waiter, on_step, |_| {})
+    play_with(m, waiter, on_step, |_| {}, &|_| None)
 }
 
 /// `play`, plus `on_wait(true/false)` as it starts and stops waiting for the
-/// macro's "only in" app.
-pub fn play_with(m: &Macro, waiter: &Waiter, mut on_step: impl FnMut(usize, u32), mut on_wait: impl FnMut(bool)) -> PlayResult {
+/// macro's "only in" app, and `resolve` to find macros for Run macro steps.
+pub fn play_with(
+    m: &Macro,
+    waiter: &Waiter,
+    mut on_step: impl FnMut(usize, u32),
+    mut on_wait: impl FnMut(bool),
+    resolve: &dyn Fn(&str) -> Option<Macro>,
+) -> PlayResult {
+    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64);
     let mut p = Player {
         waiter,
         lock: m.only_in.clone().map(crate::applock::AppLock::new),
         on_wait: &mut on_wait,
+        resolve,
+        depth: 0,
+        found: None,
+        stopped: false,
+        rng: seed | 1,
         speed: m.speed.clamp(0.05, 20.0),
         held_keys: HashSet::new(),
         held_buttons: HashSet::new(),
@@ -438,6 +490,9 @@ pub fn play_with(m: &Macro, waiter: &Waiter, mut on_step: impl FnMut(usize, u32)
             on_step(i, iteration);
             p.run(s)
         });
+        if p.stopped {
+            break true;
+        }
         if !ok {
             break false;
         }
@@ -475,6 +530,15 @@ struct Player<'a> {
     waiter: &'a Waiter,
     lock: Option<crate::applock::AppLock>,
     on_wait: &'a mut dyn FnMut(bool),
+    /// Looks up a saved macro for Run macro steps.
+    resolve: &'a dyn Fn(&str) -> Option<Macro>,
+    /// Run macro nesting, to catch macros that call each other forever.
+    depth: u32,
+    /// Where the latest screen check found its image/colour.
+    found: Option<(i32, i32)>,
+    /// A Stop step ran: end quietly, as finished.
+    stopped: bool,
+    rng: u64,
     speed: f64,
     held_keys: HashSet<Key>,
     held_buttons: HashSet<MouseButton>,
@@ -509,6 +573,23 @@ impl Player<'_> {
                 return true;
             }
         }
+    }
+
+    /// 0..1, for random waits.
+    fn random(&mut self) -> f64 {
+        self.rng ^= self.rng << 13;
+        self.rng ^= self.rng >> 7;
+        self.rng ^= self.rng << 17;
+        (self.rng >> 11) as f64 / (1u64 << 53) as f64
+    }
+
+    /// One screen check for If; remembers where it found its thing.
+    fn look(&mut self, region: Region, window: &Option<crate::window::WindowTarget>, condition: &Condition) -> Result<bool, String> {
+        let c = Watcher::new(region, condition.clone())?.in_window(window.clone()).check()?;
+        if c.matched {
+            self.found = Some(crate::watch::found_point(condition, &c, region));
+        }
+        Ok(c.matched)
     }
 
     /// Block while macros are paused. Returns false if cancelled meanwhile.
@@ -583,11 +664,18 @@ impl Player<'_> {
     fn run(&mut self, step: &Step) -> bool {
         let sends = match step {
             Step::Key { .. } | Step::Text { .. } => Sends::Keys,
-            Step::Click { at, .. } => Sends::MouseAt(*at),
+            Step::Click { at, at_found, .. } => Sends::MouseAt(if *at_found { self.found.or(*at) } else { *at }),
             Step::Scroll { .. } => Sends::MouseAt(None),
             Step::Move { x, y } => Sends::MouseAt(Some((*x, *y))),
             Step::Path { points } => Sends::MouseAt(points.first().map(|p| (p.x, p.y))),
-            Step::Wait { .. } | Step::WaitFor { .. } | Step::Repeat { .. } => Sends::Nothing,
+            Step::Wait { .. }
+            | Step::RandomWait { .. }
+            | Step::WaitFor { .. }
+            | Step::Repeat { .. }
+            | Step::If { .. }
+            | Step::RepeatUntil { .. }
+            | Step::RunMacro { .. }
+            | Step::Stop => Sends::Nothing,
         };
         if self.waiter.is_cancelled() || !self.hold(sends) {
             return false;
@@ -613,9 +701,10 @@ impl Player<'_> {
                     true
                 }
             },
-            Step::Click { button, action, hold_ms, at } => {
+            Step::Click { button, action, hold_ms, at, at_found } => {
+                let at = if *at_found { self.found.or(*at) } else { *at };
                 if let Some((x, y)) = at {
-                    self.send(&[input::move_abs_event(*x, *y)]);
+                    self.send(&[input::move_abs_event(x, y)]);
                 }
                 match action {
                     PressAction::Tap => {
@@ -662,6 +751,86 @@ impl Player<'_> {
                 true
             }
             Step::Wait { ms } => self.wait(self.scaled(*ms)),
+            Step::RandomWait { min_ms, max_ms } => {
+                let (lo, hi) = (min_ms.min(*max_ms), min_ms.max(*max_ms));
+                let ms = lo + (hi - lo) * self.random();
+                self.wait(self.scaled(ms))
+            }
+            Step::If { region, window, condition, then, otherwise } => match self.look(*region, window, condition) {
+                Ok(matched) => {
+                    let branch = if matched { then } else { otherwise };
+                    branch.iter().all(|s| self.run(s))
+                }
+                Err(e) => {
+                    self.error = Some(e);
+                    false
+                }
+            },
+            Step::RepeatUntil { region, window, condition, steps, max } => {
+                let mut w = match Watcher::new(*region, condition.clone()) {
+                    Ok(w) => w.in_window(window.clone()),
+                    Err(e) => {
+                        self.error = Some(e);
+                        return false;
+                    }
+                };
+                let mut n = 0u32;
+                loop {
+                    match w.check() {
+                        Ok(c) if c.matched => {
+                            self.found = Some(crate::watch::found_point(condition, &c, *region));
+                            return true;
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            self.error = Some(e);
+                            return false;
+                        }
+                    }
+                    if *max > 0 && n >= *max {
+                        return true;
+                    }
+                    if !steps.iter().all(|s| self.run(s)) {
+                        return false;
+                    }
+                    n += 1;
+                    if steps.is_empty() && !self.wait(Duration::from_millis(50)) {
+                        return false;
+                    }
+                }
+            }
+            Step::RunMacro { macro_id } => {
+                if self.depth >= 8 {
+                    self.error = Some("Macros run each other in a loop".into());
+                    return false;
+                }
+                let Some(inner) = (self.resolve)(macro_id) else {
+                    self.error = Some("A Run macro step points at a macro that was deleted".into());
+                    return false;
+                };
+                let speed = std::mem::replace(&mut self.speed, inner.speed.clamp(0.05, 20.0));
+                self.depth += 1;
+                let mut round = 0u32;
+                let ok = loop {
+                    if inner.repeat != 0 && round >= inner.repeat {
+                        break true;
+                    }
+                    if !inner.steps.iter().all(|s| self.run(s)) {
+                        break false;
+                    }
+                    round += 1;
+                    if inner.steps.is_empty() && !self.wait(Duration::from_millis(50)) {
+                        break false;
+                    }
+                };
+                self.depth -= 1;
+                self.speed = speed;
+                ok
+            }
+            Step::Stop => {
+                self.stopped = true;
+                false
+            }
             Step::Text { text } => {
                 for unit in text.encode_utf16() {
                     self.send(&[input::unicode_event(unit, true), input::unicode_event(unit, false)]);
@@ -671,9 +840,9 @@ impl Player<'_> {
                 }
                 true
             }
-            Step::WaitFor { region, condition, timeout_ms, poll_ms, on_timeout } => {
+            Step::WaitFor { region, condition, timeout_ms, poll_ms, on_timeout, window } => {
                 let mut w = match Watcher::new(*region, condition.clone()) {
-                    Ok(w) => w,
+                    Ok(w) => w.in_window(window.clone()),
                     Err(e) => {
                         self.error = Some(e);
                         return false;
@@ -685,6 +854,7 @@ impl Player<'_> {
                 loop {
                     if let Ok(c) = w.check() {
                         if c.matched {
+                            self.found = Some(crate::watch::found_point(condition, &c, *region));
                             return true;
                         }
                     }
@@ -754,7 +924,7 @@ mod tests {
             vec![
                 Step::Key { key: Key::from_name("E").unwrap(), action: PressAction::Tap, hold_ms: 40.0 },
                 Step::Wait { ms: 500.0 },
-                Step::Click { button: MouseButton::Left, action: PressAction::Tap, hold_ms: 20.0, at: Some((100, 200)) },
+                Step::Click { button: MouseButton::Left, action: PressAction::Tap, hold_ms: 20.0, at: Some((100, 200)), at_found: false },
             ]
         );
     }
@@ -860,6 +1030,77 @@ mod tests {
         let r = play(&m, &w, |_, _| {});
         assert!(!r.finished);
         assert!(t.elapsed() < Duration::from_secs(1));
+    }
+
+    fn run(steps: Vec<Step>, lib: &[Macro]) -> (PlayResult, std::cell::RefCell<Vec<String>>, Duration) {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let m = Macro { steps, repeat: 1, ..Default::default() };
+        let w = Waiter::new().unwrap();
+        let t = Instant::now();
+        let resolve = |id: &str| {
+            calls.borrow_mut().push(id.to_string());
+            lib.iter().find(|m| m.id == id).cloned()
+        };
+        let r = play_with(&m, &w, |_, _| {}, |_| {}, &resolve);
+        (r, calls, t.elapsed())
+    }
+    fn small_area() -> Region {
+        Region { x: 0, y: 0, w: 8, h: 8 }
+    }
+    fn named(id: &str, steps: Vec<Step>) -> Macro {
+        Macro { id: id.into(), steps, repeat: 1, ..Default::default() }
+    }
+
+    #[test]
+    fn stop_step_ends_the_macro_as_finished() {
+        let (r, _, took) = run(vec![Step::Stop, Step::Wait { ms: 5000.0 }], &[]);
+        assert!(r.finished && r.error.is_none());
+        assert!(took < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn if_takes_the_otherwise_branch_when_the_screen_doesnt_match() {
+        // "Anything changes" never matches on its first look.
+        let lib = [named("a", vec![]), named("b", vec![])];
+        let step = Step::If {
+            region: small_area(),
+            window: None,
+            condition: Condition::Changes,
+            then: vec![Step::RunMacro { macro_id: "a".into() }],
+            otherwise: vec![Step::RunMacro { macro_id: "b".into() }],
+        };
+        let (r, calls, _) = run(vec![step], &lib);
+        assert!(r.finished);
+        assert_eq!(*calls.borrow(), ["b"]);
+    }
+
+    #[test]
+    fn repeat_until_stops_at_its_limit() {
+        let lib = [named("a", vec![])];
+        let step = Step::RepeatUntil {
+            region: small_area(),
+            window: None,
+            condition: Condition::TextAppears { text: "never-on-screen-xyz".into(), digits_after: None },
+            steps: vec![Step::RunMacro { macro_id: "a".into() }],
+            max: 3,
+        };
+        let (r, calls, _) = run(vec![step], &lib);
+        assert!(r.finished, "{:?}", r.error);
+        assert_eq!(calls.borrow().len(), 3);
+    }
+
+    #[test]
+    fn random_wait_lands_in_its_range() {
+        let (_, _, took) = run(vec![Step::RandomWait { min_ms: 40.0, max_ms: 80.0 }], &[]);
+        assert!(took >= Duration::from_millis(40) && took < Duration::from_millis(130), "{took:?}");
+    }
+
+    #[test]
+    fn macros_calling_each_other_forever_are_caught() {
+        let lib = [named("a", vec![Step::RunMacro { macro_id: "a".into() }])];
+        let (r, _, _) = run(vec![Step::RunMacro { macro_id: "a".into() }], &lib);
+        assert!(!r.finished);
+        assert!(r.error.unwrap().contains("loop"));
     }
 
     #[test]

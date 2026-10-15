@@ -10,8 +10,18 @@ export const STEP_TYPES: { type: StepType; label: string; hint: string }[] = [
   { type: "scroll", label: "Scroll", hint: "Wheel up or down" },
   { type: "text", label: "Type text", hint: "Chat messages, forms" },
   { type: "waitFor", label: "Wait for screen", hint: "Until text, a number or colour shows" },
+  { type: "if", label: "If the screen shows…", hint: "Do one thing or another" },
   { type: "repeat", label: "Repeat", hint: "Loop a group of steps" },
+  { type: "repeatUntil", label: "Repeat until…", hint: "Loop until something shows up" },
+  { type: "randomWait", label: "Random wait", hint: "Somewhere between two times" },
+  { type: "runMacro", label: "Run another macro", hint: "Then carry on here" },
+  { type: "stop", label: "Stop the macro", hint: "End it here, e.g. inside an If" },
 ];
+
+/** Steps that hold more steps (shown nested). */
+export function childLists(s: Step): Step[][] {
+  return s.type === "repeat" || s.type === "repeatUntil" ? [s.steps] : s.type === "if" ? [s.then, s.otherwise] : [];
+}
 
 // Lucide-style 24×24 stroke paths.
 export const ICON: Record<StepType, string> = {
@@ -24,6 +34,11 @@ export const ICON: Record<StepType, string> = {
   text: "M4 7V5h16v2M9 19h6M12 5v14",
   repeat: "M17 2l4 4-4 4M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v1a4 4 0 0 1-4 4H3",
   waitFor: "M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12zm10 2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z",
+  randomWait: "M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM18 3l3 3M21 3l-3 3",
+  if: "M6 3v12M6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9",
+  repeatUntil: "M17 2l4 4-4 4M3 11v-1a4 4 0 0 1 4-4h14M3 18h10M17 15l3 3-3 3",
+  runMacro: "M5 3l14 9-14 9V3z",
+  stop: "M6 6h12v12H6z",
 };
 
 export const TINT: Record<StepType, string> = {
@@ -36,6 +51,11 @@ export const TINT: Record<StepType, string> = {
   text: "amber",
   repeat: "mint",
   waitFor: "cyan",
+  randomWait: "gray",
+  if: "cyan",
+  repeatUntil: "mint",
+  runMacro: "violet",
+  stop: "pink",
 };
 
 export const BUTTON_LABEL: Record<MouseButton, string> = {
@@ -73,6 +93,16 @@ export function defaultStep(type: StepType): Step {
         pollMs: 100,
         onTimeout: "continue",
       };
+    case "randomWait":
+      return { type, minMs: 200, maxMs: 400 };
+    case "if":
+      return { type, region: { x: 0, y: 0, w: 0, h: 0 }, condition: { kind: "textAppears", text: "" }, then: [], otherwise: [] };
+    case "repeatUntil":
+      return { type, region: { x: 0, y: 0, w: 0, h: 0 }, condition: { kind: "textAppears", text: "" }, steps: [], max: 100 };
+    case "runMacro":
+      return { type, macroId: "" };
+    case "stop":
+      return { type };
   }
 }
 
@@ -96,6 +126,10 @@ export function durationMs(steps: Step[]): number {
         return sum + (s.points.at(-1)?.t ?? 0);
       case "repeat":
         return sum + durationMs(s.steps) * Math.max(1, s.times);
+      case "randomWait":
+        return sum + (s.minMs + s.maxMs) / 2;
+      case "if":
+        return sum + durationMs(s.then);
       default:
         return sum;
     }
@@ -104,7 +138,10 @@ export function durationMs(steps: Step[]): number {
 
 /** Steps that do something (waits aren't counted). */
 export function actionCount(steps: Step[]): number {
-  return steps.reduce((n, s) => n + (s.type === "wait" ? 0 : s.type === "repeat" ? 1 + actionCount(s.steps) : 1), 0);
+  return steps.reduce(
+    (n, s) => n + (s.type === "wait" || s.type === "randomWait" ? 0 : 1 + childLists(s).reduce((m, l) => m + actionCount(l), 0)),
+    0,
+  );
 }
 
 export function macroSummary(m: Macro): string {
@@ -140,13 +177,23 @@ export function describe(s: Step): string {
       return `Repeat ${s.times || "forever"}`;
     case "waitFor":
       return "Wait for the screen";
+    case "randomWait":
+      return `Wait ${formatMs(s.minMs)}–${formatMs(s.maxMs)}`;
+    case "if":
+      return "If the screen shows…";
+    case "repeatUntil":
+      return "Repeat until the screen shows…";
+    case "runMacro":
+      return "Run another macro";
+    case "stop":
+      return "Stop the macro";
   }
 }
 
 /** The first few things a macro does, for card previews. */
 export function preview(steps: Step[], max = 4): { type: StepType; text: string }[] {
   return steps
-    .filter((s) => s.type !== "wait")
+    .filter((s) => s.type !== "wait" && s.type !== "randomWait")
     .slice(0, max)
     .map((s) => ({ type: s.type, text: shortText(s) }));
 }
@@ -169,6 +216,14 @@ function shortText(s: Step): string {
       return `Repeat ×${s.times || "∞"}`;
     case "waitFor":
       return "Wait for screen";
+    case "if":
+      return "If…";
+    case "repeatUntil":
+      return "Repeat until…";
+    case "runMacro":
+      return "Run macro";
+    case "stop":
+      return "Stop";
     default:
       return "";
   }
@@ -176,7 +231,7 @@ function shortText(s: Step): string {
 
 /** How many recorded mouse-movement paths (including inside loops). */
 export function pathCount(steps: Step[]): number {
-  return steps.reduce((n, s) => n + (s.type === "path" ? 1 : s.type === "repeat" ? pathCount(s.steps) : 0), 0);
+  return steps.reduce((n, s) => n + (s.type === "path" ? 1 : childLists(s).reduce((m, l) => m + pathCount(l), 0)), 0);
 }
 
 /** Replace every recorded path with an instant jump to where it ended. */
@@ -185,8 +240,8 @@ export function makeMovesInstant(steps: Step[]): void {
     if (s.type === "path") {
       const end = s.points.at(-1) ?? { x: 0, y: 0 };
       steps[i] = { type: "move", x: end.x, y: end.y };
-    } else if (s.type === "repeat") {
-      makeMovesInstant(s.steps);
+    } else {
+      childLists(s).forEach(makeMovesInstant);
     }
   });
 }

@@ -159,11 +159,20 @@ export interface PathPoint {
 
 export type Step =
   | { type: "key"; key: string; action: PressAction; holdMs: number }
-  | { type: "click"; button: MouseButton; action: PressAction; holdMs: number; at: [number, number] | null }
+  | {
+      type: "click";
+      button: MouseButton;
+      action: PressAction;
+      holdMs: number;
+      at: [number, number] | null;
+      /** Click where the last screen check found its image/colour. */
+      atFound?: boolean;
+    }
   | { type: "move"; x: number; y: number }
   | { type: "path"; points: PathPoint[] }
   | { type: "scroll"; amount: number; horizontal: boolean }
   | { type: "wait"; ms: number }
+  | { type: "randomWait"; minMs: number; maxMs: number }
   | { type: "text"; text: string }
   | { type: "repeat"; times: number; steps: Step[] }
   | {
@@ -173,7 +182,19 @@ export type Step =
       timeoutMs: number;
       pollMs: number;
       onTimeout: OnTimeout;
-    };
+      window?: WindowTarget | null;
+    }
+  | {
+      type: "if";
+      region: Region;
+      window?: WindowTarget | null;
+      condition: Condition;
+      then: Step[];
+      otherwise: Step[];
+    }
+  | { type: "repeatUntil"; region: Region; window?: WindowTarget | null; condition: Condition; steps: Step[]; max: number }
+  | { type: "runMacro"; macroId: string }
+  | { type: "stop" };
 
 export type StepType = Step["type"];
 

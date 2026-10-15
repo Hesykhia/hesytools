@@ -10,6 +10,8 @@
   import ConditionEditor from "../watch/ConditionEditor.svelte";
   import RegionChip from "../watch/RegionChip.svelte";
   import WatchViewer from "../watch/WatchViewer.svelte";
+  import WindowChip from "../watch/WindowChip.svelte";
+  import { activity } from "$lib/activity.svelte";
 
   let {
     steps,
@@ -27,7 +29,7 @@
   let actionNumber = $derived.by(() => {
     // Waits don't get a number; they read as the gaps between actions.
     let n = 0;
-    return steps.map((s) => (s.type === "wait" ? 0 : ++n));
+    return steps.map((s) => (s.type === "wait" || s.type === "randomWait" ? 0 : ++n));
   });
 
   $effect(() => {
@@ -78,7 +80,10 @@
       const p = await api.pickPoint();
       if (!p) return;
       const s = steps[i];
-      if (s.type === "click") s.at = p;
+      if (s.type === "click") {
+        s.at = p;
+        s.atFound = false;
+      }
       if (s.type === "move") [s.x, s.y] = p;
     } finally {
       picking = -1;
@@ -90,6 +95,9 @@
     { value: "down", label: "Hold down" },
     { value: "up", label: "Release" },
   ];
+  /** Steps that can sit inside another step, kept to three levels deep. */
+  const NESTING: StepType[] = ["repeat", "repeatUntil", "if"];
+  const macroName = (id: string) => activity.macros.find((m) => m.id === id)?.name;
   const keyVerb = (a: PressAction) => ({ tap: "Press", down: "Hold down", up: "Release" })[a];
   const clickVerb = (b: MouseButton, a: PressAction) =>
     a === "tap" ? BUTTON_LABEL[b] : `${a === "down" ? "Hold" : "Release"} ${BUTTON_LABEL[b].replace(" click", "")}`;
@@ -97,12 +105,19 @@
 
 <ol class="list" class:nested={depth > 0}>
   {#each steps as s, i (s)}
-    {#if s.type === "wait"}
+    {#if s.type === "wait" || s.type === "randomWait"}
       <li class="wait" bind:this={rows[i]} class:active={i === active}>
         <span class="rail"></span>
         <span class="wait-pill">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z" /></svg>
-          wait <InlineNumber value={s.ms} onchange={(v) => (s.ms = v)} /> ms
+          {#if s.type === "wait"}
+            wait <InlineNumber value={s.ms} onchange={(v) => (s.ms = v)} /> ms
+            <button class="mini" title="Wait a random time instead" onclick={() => (steps[i] = { type: "randomWait", minMs: s.ms, maxMs: Math.round(s.ms * 2) || 100 })}>random</button>
+          {:else}
+            wait <InlineNumber value={s.minMs} onchange={(v) => (s.minMs = v)} /> to <InlineNumber value={s.maxMs} onchange={(v) => (s.maxMs = v)} /> ms
+            <span class="soft">at random</span>
+            <button class="mini" title="Always wait the same time" onclick={() => (steps[i] = { type: "wait", ms: s.minMs })}>fixed</button>
+          {/if}
         </span>
         <span class="tools">
           <button title="Move up" onclick={() => move(i, -1)} disabled={i === 0}>↑</button>
@@ -151,7 +166,10 @@
                 {/each}
               {/snippet}
             </Popover>
-            {#if s.at}
+            {#if s.atFound}
+              <span class="soft">on what the screen check found</span>
+              <button class="mini" title="Click wherever the cursor is instead" onclick={() => (s.atFound = false)}>any spot</button>
+            {:else if s.at}
               <span class="soft">at</span>
               <InlineNumber value={s.at[0]} min={-1e5} onchange={(v) => s.at && (s.at[0] = Math.round(v))} />
               <InlineNumber value={s.at[1]} min={-1e5} onchange={(v) => s.at && (s.at[1] = Math.round(v))} />
@@ -162,6 +180,13 @@
             {:else}
               <span class="soft">wherever the cursor is</span>
               <button class="mini" class:busy={picking === i} onclick={() => pickInto(i)}>{picking === i ? "click anywhere…" : "set spot"}</button>
+            {/if}
+            {#if !s.atFound}
+              <button
+                class="mini"
+                title="Click the image or colour the last Wait for screen / If / Repeat until found"
+                onclick={() => (s.atFound = true)}>what it found</button
+              >
             {/if}
             {#if s.action === "tap"}
               <span class="soft">for</span> <InlineNumber value={s.holdMs} onchange={(v) => (s.holdMs = v)} /> <span class="soft">ms</span>
@@ -210,7 +235,8 @@
             <span>Wait until</span>
             <ConditionEditor bind:condition={s.condition} />
             <span class="soft">in</span>
-            <RegionChip bind:region={s.region} />
+            <RegionChip bind:region={s.region} window={s.window} />
+            <WindowChip bind:window={s.window} bind:region={s.region} />
             <span class="soft">· give up after</span>
             {#if s.timeoutMs > 0}
               <InlineNumber value={s.timeoutMs / 1000} min={0.1} onchange={(v) => (s.timeoutMs = Math.round(v * 1000))} />
@@ -225,6 +251,43 @@
             <button class="mini" class:busy={viewing === s} onclick={() => (viewing = viewing === s ? null : s)}>
               {viewing === s ? "hide live view" : "live view"}
             </button>
+          {:else if s.type === "if" || s.type === "repeatUntil"}
+            <span>{s.type === "if" ? "If" : "Repeat until"}</span>
+            <ConditionEditor bind:condition={s.condition} />
+            <span class="soft">in</span>
+            <RegionChip bind:region={s.region} window={s.window} />
+            <WindowChip bind:window={s.window} bind:region={s.region} />
+            {#if s.type === "repeatUntil"}
+              <span class="soft">·</span>
+              {#if s.max > 0}
+                <span class="soft">at most</span>
+                <InlineNumber value={s.max} min={1} onchange={(v) => (s.max = Math.round(v))} />
+                <span class="soft">times</span>
+                <button class="mini" onclick={() => (s.max = 0)}>no limit</button>
+              {:else}
+                <button class="chip" title="Set a limit" onclick={() => (s.max = 100)}>no limit</button>
+              {/if}
+            {/if}
+            <button class="mini" class:busy={viewing === s} onclick={() => (viewing = viewing === s ? null : s)}>
+              {viewing === s ? "hide live view" : "live view"}
+            </button>
+          {:else if s.type === "runMacro"}
+            <span>Run</span>
+            <Popover width={260}>
+              {#snippet trigger({ toggle, open })}
+                <button class="chip" class:open onclick={toggle}>{macroName(s.macroId) ?? "pick a macro"}</button>
+              {/snippet}
+              {#snippet children({ close })}
+                {#each activity.macros as m (m.id)}
+                  <button class="menu-item" class:on={s.macroId === m.id} onclick={() => ((s.macroId = m.id), close())}>{m.name}</button>
+                {:else}
+                  <p class="soft pad">No other macros yet.</p>
+                {/each}
+              {/snippet}
+            </Popover>
+            <span class="soft">then carry on</span>
+          {:else if s.type === "stop"}
+            <span>Stop the macro here</span>
           {/if}
         </div>
         <span class="tools">
@@ -234,15 +297,28 @@
           <button title="Delete" class="del" onclick={() => steps.splice(i, 1)}>✕</button>
         </span>
       </li>
-      {#if s.type === "repeat"}
+      {#if (s.type === "if" || s.type === "repeatUntil") && viewing === s}
+        <li class="live-view">
+          <WatchViewer region={s.region} condition={s.condition} window={s.window ?? null} />
+        </li>
+      {/if}
+      {#if s.type === "repeat" || s.type === "repeatUntil"}
         <li class="nest">
           <StepList steps={s.steps} depth={depth + 1} />
+        </li>
+      {:else if s.type === "if"}
+        <li class="nest">
+          <span class="branch">then</span>
+          <StepList steps={s.then} depth={depth + 1} />
+          <span class="branch">otherwise</span>
+          <StepList steps={s.otherwise} depth={depth + 1} />
         </li>
       {:else if s.type === "waitFor" && viewing === s}
         <li class="live-view">
           <WatchViewer
             region={s.region}
             condition={s.condition}
+            window={s.window ?? null}
             onpickcolor={s.condition.kind === "colorAt"
               ? (dx, dy, rgb) => {
                   if (s.condition.kind === "colorAt") Object.assign(s.condition, { dx, dy, rgb });
@@ -259,12 +335,12 @@
       {#snippet trigger({ toggle, open })}
         <button class="add" class:open onclick={toggle}>
           <span class="plus">+</span>
-          {depth > 0 ? "Add step to loop" : "Add step"}
+          {depth > 0 ? "Add step here" : "Add step"}
         </button>
       {/snippet}
       {#snippet children({ close })}
         <div class="types">
-          {#each STEP_TYPES.filter((t) => depth < 2 || t.type !== "repeat") as t}
+          {#each STEP_TYPES.filter((t) => depth < 2 || !NESTING.includes(t.type)) as t}
             <button class="type" onclick={() => add(t.type, close)}>
               <StepIcon type={t.type} size={30} />
               <span><b>{t.label}</b><small>{t.hint}</small></span>
@@ -465,6 +541,19 @@
   }
   .nest {
     list-style: none;
+  }
+  .branch {
+    display: block;
+    margin: 6px 0 2px 46px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+  .pad {
+    padding: 6px 10px;
+    font-size: 12.5px;
   }
   .live-view {
     margin: 6px 0 2px 40px;

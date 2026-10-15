@@ -24,6 +24,7 @@ fn main() {
                 timeout_ms: 8000.0,
                 poll_ms: 100.0,
                 on_timeout: OnTimeout::Stop,
+                window: None,
             },
             Step::Key { key: Key::from_name("F24").unwrap(), action: PressAction::Tap, hold_ms: 10.0 },
         ],
