@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The Quick Clicker as a compact side panel. It reads as a sentence; each
+  // The autoclicker as a compact side panel. It reads as a sentence; each
   // chip opens a labelled panel laid out like OP Auto Clicker's options.
   import { onDestroy, onMount } from "svelte";
   import {
@@ -261,7 +261,7 @@
 
 <section class="panel glass" class:live={running}>
   <header>
-    <span class="eyebrow">Quick Clicker</span>
+    <span class="eyebrow">Autoclicker</span>
     {#if running}
       <span class="pill live"><span class="dot"></span>{clicks.toLocaleString()} {cfg.action.kind === "key" ? "presses" : "clicks"}</span>
     {:else if clicks > 0}

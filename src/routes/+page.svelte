@@ -14,7 +14,7 @@
   import Aurora from "$lib/components/ui/Aurora.svelte";
   import TitleBar from "$lib/components/ui/TitleBar.svelte";
   import Tabs from "$lib/components/ui/Tabs.svelte";
-  import QuickClicker from "$lib/components/clicker/QuickClicker.svelte";
+  import Autoclicker from "$lib/components/clicker/Autoclicker.svelte";
   import MacroLibrary from "$lib/components/macros/MacroLibrary.svelte";
   import MacroEditor from "$lib/components/macros/MacroEditor.svelte";
   import RecordingBar from "$lib/components/macros/RecordingBar.svelte";
@@ -91,7 +91,7 @@
         value={page}
         onchange={go}
         options={[
-          { value: "macros", label: "Macros", dot: busy },
+          { value: "macros", label: "Macro", dot: busy },
           { value: "watch", label: "Screen Watch" },
         ]}
       />
@@ -122,7 +122,7 @@
                 {#if activity.recording}<RecordingCard />{/if}
                 <MacroLibrary bind:settings onopen={openMacro} />
               </div>
-              <aside><QuickClicker bind:settings bind:running /></aside>
+              <aside><Autoclicker bind:settings bind:running /></aside>
             </div>
           {:else if page === "watch"}
             <WatchPage bind:settings />

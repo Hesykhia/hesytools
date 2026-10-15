@@ -179,7 +179,7 @@ async function applyScene() {
     if (id) setTimeout(() => (document.querySelectorAll<HTMLButtonElement>(".rule")[Number(id)] ?? null)?.click(), 300);
   }
   if (kind === "clicker") {
-    // clicker:<n> opens the nth chip's panel in the Quick Clicker sentence
+    // clicker:<n> opens the nth chip's panel in the autoclicker sentence
     setTimeout(() => (document.querySelectorAll<HTMLButtonElement>(".panel .sentence .chip")[Number(id ?? 0)] ?? null)?.click(), 200);
   }
   if (kind === "settings") {

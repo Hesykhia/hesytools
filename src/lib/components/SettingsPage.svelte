@@ -81,7 +81,7 @@
         <h3>Hotkeys</h3>
         <p class="sub">They work from anywhere, even while a game is focused.</p>
         <div class="row">
-          <div class="text"><b>Quick Clicker</b><small>Start and stop the autoclicker</small></div>
+          <div class="text"><b>Autoclicker</b><small>Start and stop clicking</small></div>
           <Tabs
             size="s"
             value={settings.clickerMode}
@@ -102,7 +102,7 @@
           <HotkeyButton value={settings.panicHotkey} onchange={(v) => setGlobal("panic", v)} />
         </div>
         {#if activity.macros.length > 0}
-          <span class="label">Macros</span>
+          <span class="label">Macro hotkeys</span>
           {#each activity.macros as m (m.id)}
             <div class="row">
               <div class="text"><b>{m.name}</b><small>Start and stop this macro</small></div>
@@ -187,7 +187,7 @@
           <input type="url" placeholder="Webhook URL: https://discord.com/api/webhooks/…" bind:value={webhook.url} spellcheck="false" />
           <input type="text" placeholder="Your Discord user ID to get pinged (optional)" bind:value={webhook.mentionUserId} />
           <div class="row tight">
-            <div class="text"><small class="plain">When the Quick Clicker finishes a count or time limit</small></div>
+            <div class="text"><small class="plain">When the autoclicker finishes a count or time limit</small></div>
             <Toggle checked={webhook.notifyClickerFinished} onchange={(v) => (webhook.notifyClickerFinished = v)} label="Clicker finished" />
           </div>
           <div class="row tight">

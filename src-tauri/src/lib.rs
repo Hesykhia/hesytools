@@ -69,7 +69,7 @@ impl App {
     }
 }
 
-// ── Quick Clicker ───────────────────────────────────────────────────────────
+// ── Autoclicker ─────────────────────────────────────────────────────────────
 
 fn start_clicker(app: &AppHandle, a: &Arc<App>) -> Result<(), String> {
     let cfg = a.settings.lock().clicker.clone();
@@ -80,7 +80,7 @@ fn start_clicker(app: &AppHandle, a: &Arc<App>) -> Result<(), String> {
             if reason == ExitReason::Finished {
                 let clicks = a2.clicker.status().clicks;
                 if a2.settings.lock().webhook.notify_clicker_finished {
-                    notify(&handle, &a2, "Quick Clicker finished", &format!("Done after {clicks} clicks."));
+                    notify(&handle, &a2, "Autoclicker finished", &format!("Done after {clicks} clicks."));
                 }
             }
         })
@@ -307,7 +307,7 @@ fn apply_hotkeys(a: &App) {
 fn hotkey_owner(a: &App, hk: Hotkey, except: &str) -> Option<String> {
     let s = a.settings.lock();
     let globals = [
-        (HK_CLICKER, s.clicker_hotkey, "the Quick Clicker".to_string()),
+        (HK_CLICKER, s.clicker_hotkey, "the autoclicker".to_string()),
         (HK_PANIC, s.panic_hotkey, "the panic key".to_string()),
         (HK_RECORD, s.record_hotkey, "recording".to_string()),
     ];

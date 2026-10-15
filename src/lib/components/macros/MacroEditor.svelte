@@ -54,7 +54,7 @@
   let countdown = $state(0);
   let countdownTimer: ReturnType<typeof setInterval> | undefined;
 
-  // Same 3s grace as the Quick Clicker so you can switch to the game first.
+  // Same 3s grace as the autoclicker so you can switch to the game first.
   async function playStop() {
     if (countdown > 0) {
       clearInterval(countdownTimer);
@@ -103,9 +103,9 @@
 
 <div class="editor">
   <div class="top">
-    <button class="back" onclick={onback} aria-label="Back to macros">
+    <button class="back" onclick={onback} aria-label="Back to Macro">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
-      Macros
+      Macro
     </button>
     <span class="saved">{saving ? "Saving…" : "Saved"}</span>
   </div>

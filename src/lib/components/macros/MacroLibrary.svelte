@@ -42,7 +42,7 @@
 <section class="lib">
   <div class="head">
     <div>
-      <h2>Macros</h2>
+      <h2>Macro</h2>
       <p>Record what you do once, replay it forever.</p>
     </div>
     <div class="actions">

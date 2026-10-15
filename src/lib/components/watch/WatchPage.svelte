@@ -155,7 +155,7 @@
                       onclick={() => ((r.action = { kind: "runMacro", macroId: m.id }), close())}><b>{m.name}</b></button
                     >
                   {:else}
-                    <p class="none">No macros yet. Record one on the Macros tab.</p>
+                    <p class="none">No macros yet. Record one on the Macro tab.</p>
                   {/each}
                 {/snippet}
               </Popover>
