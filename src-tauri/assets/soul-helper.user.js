@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         hesytools · Soul Clicker helper
 // @namespace    hesytools
-// @version      1.0.0
+// @version      1.1.0
 // @description  Lets hesytools play Soul Clicker for you: catches favors, buys, runs the Ritual. Only presses the game's own buttons.
 // @match        https://www.deadchaps.gg/soul-clicker*
 // @match        https://deadchaps.gg/soul-clicker*
 // @grant        GM_xmlhttpRequest
 // @connect      127.0.0.1
+// @updateURL    http://127.0.0.1:__PORT__/soul-helper.user.js
+// @downloadURL  http://127.0.0.1:__PORT__/soul-helper.user.js
 // @run-at       document-idle
 // @noframes
 // ==/UserScript==
@@ -20,19 +22,23 @@
 
   const BRIDGE = "http://127.0.0.1:__PORT__/soul";
   const TOKEN = "__TOKEN__";
+  const VERSION = "1.1.0";
 
   /** Off until hesytools says otherwise. */
   let cfg = {
     enabled: false,
     favors: false,
     crystals: false,
+    leech: false,
+    blessings: false,
+    frenzy: false,
     buyGens: false,
     buyUpgrades: false,
     orb: false,
     orbCps: 8,
     ritual: { mode: "off", worth: 1.5, shards: 10 },
   };
-  const stats = { favors: 0, crystals: 0, gens: 0, upgrades: 0, rituals: 0, orbClicks: 0, last: "" };
+  const stats = { favors: 0, spheres: 0, crystals: 0, leeches: 0, blessings: 0, gens: 0, upgrades: 0, rituals: 0, orbClicks: 0, last: "" };
 
   // ── Reading the page ──────────────────────────────────────────────────────
   const WORDS = ["thousand", "million", "billion", "trillion", "quadrillion", "quintillion", "sextillion", "septillion", "octillion", "nonillion"];
@@ -81,11 +87,32 @@
   const isOpen = (el) => el && !el.classList.contains("cant") && !el.disabled;
 
   function catchPopups() {
-    if (cfg.favors)
+    if (cfg.favors) {
+      // Every kind of favor (statues, buff favors, the Wrath) is this button.
       for (const b of $$("button.favor")) {
         press(b);
         stats.favors++;
-        stats.last = "Caught a favor";
+        stats.last = "Caught " + ((b.getAttribute("aria-label") || "a favor").split(",")[0] || "a favor");
+      }
+      // Chains and storms scatter soul spheres to gather.
+      for (const b of $$("button.soul-sphere")) {
+        b.click();
+        stats.spheres++;
+        stats.last = "Gathered soul spheres";
+      }
+    }
+    if (cfg.leech)
+      for (const b of $$("button.leech")) {
+        b.click();
+        stats.leeches++;
+        stats.last = "Claimed the Soul Leech";
+      }
+    if (cfg.blessings)
+      for (const b of $$("button")) {
+        if (!(b.getAttribute("aria-label") || "").startsWith("Release banked blessing")) continue;
+        b.click();
+        stats.blessings++;
+        stats.last = "Released a banked blessing";
       }
     if (cfg.crystals)
       for (const b of $$("button.crystal-boss")) {
@@ -206,13 +233,28 @@
   }
 
   // ── Orb clicking, with a human-ish rhythm ─────────────────────────────────
+  /** A blessing that makes clicks pay more is running: Trigger Frenzy and
+   * Kinetic Dash (buff-click) or Spirit Surge (buff-surge). */
+  const clickBuff = () => !!$(".buff-stack .buff-click, .buff-stack .buff-surge");
+  /** "Hold the orb to draw souls at full speed" (buff-autoclick). */
+  let holding = false;
+  function holdOrb() {
+    const want = cfg.enabled && cfg.frenzy && !!$(".buff-stack .buff-autoclick");
+    const orb = $("button.orb");
+    if (!orb || want === holding) return;
+    holding = want;
+    const type = want ? "pointerdown" : "pointerup";
+    orb.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: "mouse", button: 0, buttons: want ? 1 : 0 }));
+    if (want) stats.last = "Holding the orb";
+  }
   function orbLoop() {
-    const cps = Math.min(20, Math.max(1, cfg.orbCps || 8));
+    const boost = cfg.frenzy && clickBuff();
+    const cps = boost ? 20 : Math.min(20, Math.max(1, cfg.orbCps || 8));
     // ±45% jitter keeps the gaps irregular, so the game's rhythm check
     // ("The Concierge Noticed") doesn't flag it.
     const gap = (1000 / cps) * (0.55 + Math.random() * 0.9);
     setTimeout(orbLoop, gap);
-    if (!cfg.enabled || !cfg.orb || document.hidden) return;
+    if (!cfg.enabled || !(cfg.orb || boost) || document.hidden) return;
     const orb = $("button.orb");
     if (orb) {
       orb.click();
@@ -223,6 +265,7 @@
   // ── Main loop ─────────────────────────────────────────────────────────────
   let tickN = 0;
   function tick() {
+    holdOrb();
     if (!cfg.enabled) return;
     catchPopups();
     tickN++;
@@ -237,7 +280,7 @@
   // ── Talking to hesytools (only on this PC) ────────────────────────────────
   let connected = false;
   function sync() {
-    const body = JSON.stringify({ status: readStatus(), stats, ritual: lastRitual });
+    const body = JSON.stringify({ version: VERSION, status: readStatus(), stats, ritual: lastRitual });
     const done = (ok, resText) => {
       connected = ok;
       if (ok) {

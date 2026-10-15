@@ -91,6 +91,9 @@ export interface SoulConfig {
   enabled: boolean;
   favors: boolean;
   crystals: boolean;
+  leech: boolean;
+  blessings: boolean;
+  frenzy: boolean;
   buyGens: boolean;
   buyUpgrades: boolean;
   orb: boolean;
@@ -102,8 +105,20 @@ export interface SoulConfig {
 export interface SoulReport {
   at: number;
   data: {
+    version?: string;
     status?: { souls: string; sps: string; perClick: string; pending: string };
-    stats?: { favors: number; crystals: number; gens: number; upgrades: number; rituals: number; orbClicks: number; last: string };
+    stats?: {
+      favors: number;
+      spheres?: number;
+      crystals: number;
+      leeches?: number;
+      blessings?: number;
+      gens: number;
+      upgrades: number;
+      rituals: number;
+      orbClicks: number;
+      last: string;
+    };
     ritual?: { can: boolean; pending: number; bonus: number; pendingBonus: number } | null;
   };
 }
@@ -360,6 +375,7 @@ export const api = {
   setDevCode: (code: string) => invoke<DevStatus>("set_dev_code", { code }),
   setSoulConfig: (config: SoulConfig) => invoke<Settings>("set_soul_config", { config }),
   soulReport: () => invoke<SoulReport | null>("soul_report"),
+  soulHelperVersion: () => invoke<string>("soul_helper_version"),
   installSoulHelper: () => invoke<void>("install_soul_helper"),
   makeDevCode: (name: string) => invoke<Settings>("make_dev_code", { name }),
   forgetDevCode: (name: string) => invoke<Settings>("forget_dev_code", { name }),

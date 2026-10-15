@@ -38,6 +38,12 @@ pub struct SoulConfig {
     pub enabled: bool,
     pub favors: bool,
     pub crystals: bool,
+    /// Claim the Soul Leech (offline earnings).
+    pub leech: bool,
+    /// Release banked blessings straight away.
+    pub blessings: bool,
+    /// Click the orb flat out while a click blessing is running.
+    pub frenzy: bool,
     pub buy_gens: bool,
     pub buy_upgrades: bool,
     pub orb: bool,
@@ -59,6 +65,15 @@ pub trait Host: Send + Sync + 'static {
     /// `None` while the Dev tab is locked: the helper then gets nothing.
     fn config(&self) -> Option<SoulConfig>;
     fn report(&self, r: SoulReport);
+}
+
+/// The helper version bundled with this build (its @version line).
+pub fn helper_version() -> String {
+    SCRIPT
+        .lines()
+        .find_map(|l| l.strip_prefix("// @version"))
+        .map(|v| v.trim().to_string())
+        .unwrap_or_default()
 }
 
 pub fn script(token: &str) -> String {

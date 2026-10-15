@@ -153,6 +153,13 @@ fn soul_report(a: AppState) -> Option<soul::SoulReport> {
     a.soul_report.lock().clone()
 }
 
+/// The helper version this build hands out (the Dev tab offers an update
+/// when the installed one reports something older).
+#[tauri::command]
+fn soul_helper_version() -> String {
+    soul::helper_version()
+}
+
 /// Open the helper's install page; Violentmonkey picks it up from there.
 #[tauri::command]
 fn install_soul_helper(a: AppState) -> Result<(), String> {
@@ -1463,6 +1470,7 @@ pub fn run() {
             install_soul_helper,
             open_link,
             make_dev_code,
+            soul_helper_version,
             forget_dev_code,
             pick_point,
             cancel_pick,

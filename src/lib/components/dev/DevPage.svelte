@@ -16,6 +16,9 @@
     enabled: false,
     favors: true,
     crystals: true,
+    leech: true,
+    blessings: false,
+    frenzy: true,
     buyGens: false,
     buyUpgrades: false,
     orb: false,
@@ -52,6 +55,9 @@
   let status = $derived(report?.data.status);
   let stats = $derived(report?.data.stats);
   let ritual = $derived(report?.data.ritual);
+  let bundled = $state("");
+  onMount(() => api.soulHelperVersion().then((v) => (bundled = v)));
+  let outdated = $derived(connected && !!bundled && (report?.data.version ?? "1.0.0") !== bundled);
   let gain = $derived(ritual && ritual.can ? (100 + ritual.bonus + ritual.pendingBonus) / (100 + ritual.bonus) : null);
 
   const install = async () => {
@@ -90,9 +96,15 @@
 
   const open = (url: string) => api.openLink(url).catch((e) => toast(errorText(e), "error"));
 
-  const AUTOMATIONS: { key: "favors" | "crystals" | "buyUpgrades" | "buyGens"; name: string; what: string }[] = [
-    { key: "favors", name: "Catch favors", what: "Golden Statues the moment they appear" },
+  const AUTOMATIONS: {
+    key: "favors" | "crystals" | "leech" | "blessings" | "buyUpgrades" | "buyGens";
+    name: string;
+    what: string;
+  }[] = [
+    { key: "favors", name: "Catch favors", what: "Every Golden Statue and buff favor, plus the soul spheres chains and storms scatter" },
     { key: "crystals", name: "Kill Mid-Bosses", what: "For their Rejuv Crystals" },
+    { key: "leech", name: "Claim the Soul Leech", what: "What your sources earned while you were away" },
+    { key: "blessings", name: "Release banked blessings", what: "Use a saved blessing as soon as it's banked" },
     { key: "buyUpgrades", name: "Buy upgrades", what: "Anything in the Curiosity Shop you can afford" },
     { key: "buyGens", name: "Buy generators", what: "Always the best value: most souls per second for the price" },
   ];
@@ -151,6 +163,13 @@
       </label>
     </div>
 
+    {#if outdated}
+      <div class="update">
+        <span>The helper in your browser is older than this version of hesytools.</span>
+        <button class="btn primary" onclick={install}>Update helper</button>
+      </div>
+    {/if}
+
     {#if !connected}
       <ol class="setup">
         <li>
@@ -179,7 +198,7 @@
       </div>
       {#if stats}
         <p class="tally">
-          {stats.favors} favors · {stats.crystals} Mid-Bosses · {stats.upgrades} upgrades · {stats.gens} generators · {stats.rituals}
+          {stats.favors} favors · {stats.spheres ?? 0} spheres · {stats.crystals} Mid-Bosses · {stats.upgrades} upgrades · {stats.gens} generators · {stats.rituals}
           Rituals this session{#if stats.last}<span class="last">&nbsp;· {stats.last}</span>{/if}
         </p>
       {/if}
@@ -203,6 +222,13 @@
             </small>
           </div>
           <Toggle checked={cfg.orb} onchange={(v) => (cfg.orb = v)} label="Click the orb" />
+        </div>
+        <div class="row">
+          <div class="text">
+            <b>Go all out during click blessings</b>
+            <small>While something like Trigger Frenzy is running, click the orb 20 times a second (even if the above is off)</small>
+          </div>
+          <Toggle checked={cfg.frenzy} onchange={(v) => (cfg.frenzy = v)} label="Click hard during click blessings" />
         </div>
       </div>
 
@@ -314,6 +340,20 @@
   }
   .master.on {
     color: var(--mint);
+  }
+  .update {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 13px;
+    color: var(--amber);
+    background: rgba(255, 191, 92, 0.08);
+    border: 1px solid rgba(255, 191, 92, 0.35);
+  }
+  .update span {
+    flex: 1;
   }
   .setup {
     list-style: none;

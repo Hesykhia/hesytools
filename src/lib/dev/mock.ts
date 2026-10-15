@@ -316,6 +316,8 @@ export function install() {
         case "install_soul_helper":
         case "open_link":
           return;
+        case "soul_helper_version":
+          return "1.1.0";
         case "make_dev_code":
           settings.issuedCodes = [
             { name: a.name.trim(), code: "HT-" + btoa(a.name + "-demo-signature-0123456789").replace(/=/g, ""), madeAt: Date.now() },
