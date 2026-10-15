@@ -2,7 +2,9 @@
 //! private key that never leaves their PC; the app only checks it against
 //! the public key below, so codes can't be made up or edited.
 //!
-//! Make one with `scripts/devcode.ps1 <name>`.
+//! On hesy's PC (where the private key lives) the app is the "owner": the
+//! Dev tab is always unlocked and can make codes for friends.
+//! `scripts/devcode.ps1 <name>` does the same from a terminal.
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -13,12 +15,25 @@ const PUBLIC_KEY: &str = "59d895bc0f48d6d1acddfaeaff75c2cfa7ab6082f658a40e99e132
 const CONTEXT: &[u8] = b"hesytools dev access v1:";
 const PREFIX: &str = "HT-";
 
+/// The private key, if this PC has it (only hesy's does).
+pub fn owner_seed() -> Option<[u8; 32]> {
+    let path = std::path::PathBuf::from(std::env::var_os("USERPROFILE")?).join(".tauri").join("hesytools-dev.key");
+    let hex = std::fs::read_to_string(path).ok()?;
+    let hex = hex.trim();
+    if hex.len() != 64 {
+        return None;
+    }
+    let bytes: Vec<u8> = (0..64).step_by(2).filter_map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok()).collect();
+    let seed: [u8; 32] = bytes.try_into().ok()?;
+    // Only count it if it really is the key the app trusts.
+    (public_key_hex(&seed) == PUBLIC_KEY).then_some(seed)
+}
+
 fn message(name: &str) -> Vec<u8> {
     [CONTEXT, name.as_bytes()].concat()
 }
 
-/// A code that unlocks the Dev tab for `name` (used by examples/devcode.rs).
-#[allow(dead_code)]
+/// A code that unlocks the Dev tab for `name`.
 pub fn make_code(seed: &[u8; 32], name: &str) -> String {
     let sig = SigningKey::from_bytes(seed).sign(&message(name));
     let mut raw = vec![name.len() as u8];
@@ -27,7 +42,6 @@ pub fn make_code(seed: &[u8; 32], name: &str) -> String {
     format!("{PREFIX}{}", URL_SAFE_NO_PAD.encode(raw))
 }
 
-#[allow(dead_code)]
 pub fn public_key_hex(seed: &[u8; 32]) -> String {
     SigningKey::from_bytes(seed).verifying_key().to_bytes().iter().map(|b| format!("{b:02x}")).collect()
 }

@@ -311,7 +311,11 @@
 
       <section class="group glass">
         <h3>Dev access {#if dev.unlocked}<span class="on">On</span>{/if}</h3>
-        {#if dev.unlocked}
+        {#if dev.owner}
+          <div class="row">
+            <div class="text"><b>This is your PC</b><small>The Dev tab is always on here. Make codes for friends in the Dev tab.</small></div>
+          </div>
+        {:else if dev.unlocked}
           <div class="row">
             <div class="text"><b>Unlocked for {dev.name}</b><small>The Dev tab is next to Macro and Screen Watch.</small></div>
             <button class="btn" onclick={lockDev}>Remove code</button>

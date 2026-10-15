@@ -75,6 +75,14 @@ export interface DevStatus {
   unlocked: boolean;
   /** Who the access code was made for. */
   name: string | null;
+  /** This PC has the private key: always unlocked, can make codes. */
+  owner: boolean;
+}
+
+export interface IssuedCode {
+  name: string;
+  code: string;
+  madeAt: number;
 }
 
 export type RitualMode = "off" | "worth" | "shards" | "always";
@@ -266,6 +274,7 @@ export interface Settings {
   webhook: WebhookSettings;
   watches: WatchRule[];
   devCode?: string | null;
+  issuedCodes?: IssuedCode[];
   soul?: SoulConfig;
 }
 
@@ -352,6 +361,8 @@ export const api = {
   setSoulConfig: (config: SoulConfig) => invoke<Settings>("set_soul_config", { config }),
   soulReport: () => invoke<SoulReport | null>("soul_report"),
   installSoulHelper: () => invoke<void>("install_soul_helper"),
+  makeDevCode: (name: string) => invoke<Settings>("make_dev_code", { name }),
+  forgetDevCode: (name: string) => invoke<Settings>("forget_dev_code", { name }),
   openLink: (url: string) => invoke<void>("open_link", { url }),
   findWindow: (target: WindowTarget) => invoke<WindowInfo | null>("find_window", { target }),
   /** Raw bytes: u32 width, u32 height (little-endian), then RGBA pixels. */

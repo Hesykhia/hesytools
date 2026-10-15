@@ -5,6 +5,7 @@ import { api, onSoulReport, type DevStatus, type SoulReport } from "$lib/api";
 export const dev = $state({
   unlocked: false,
   name: null as string | null,
+  owner: false,
   /** The Soul Clicker helper's latest report. */
   report: null as SoulReport | null,
 });
@@ -12,6 +13,7 @@ export const dev = $state({
 export function setDev(s: DevStatus) {
   dev.unlocked = s.unlocked;
   dev.name = s.name;
+  dev.owner = s.owner;
 }
 
 export async function initDev(): Promise<() => void> {

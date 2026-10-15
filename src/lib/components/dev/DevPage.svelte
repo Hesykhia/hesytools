@@ -61,6 +61,33 @@
       toast(errorText(e), "error");
     }
   };
+  // ── Owner: codes for friends ──
+  let friend = $state("");
+  let fresh = $state<string | null>(null);
+  async function makeCode() {
+    try {
+      settings = await api.makeDevCode(friend);
+      fresh = friend.trim();
+      friend = "";
+    } catch (e) {
+      toast(errorText(e), "error");
+    }
+  }
+  async function copy(code: string) {
+    try {
+      await navigator.clipboard.writeText(code);
+      toast("Code copied. Send it to them; they paste it in Settings → Dev access.");
+    } catch {
+      toast("Couldn't copy. Select the code and copy it by hand.", "error");
+    }
+  }
+  const forget = (name: string) =>
+    api
+      .forgetDevCode(name)
+      .then((s) => (settings = s))
+      .catch((e) => toast(errorText(e), "error"));
+  const when = (ms: number) => new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
+
   const open = (url: string) => api.openLink(url).catch((e) => toast(errorText(e), "error"));
 
   const AUTOMATIONS: { key: "favors" | "crystals" | "buyUpgrades" | "buyGens"; name: string; what: string }[] = [
@@ -78,10 +105,35 @@
 </script>
 
 <div class="page">
+  {#snippet giveAccess()}
+    <section class="access glass">
+      <div class="top">
+        <div class="title"><h3>Give access</h3></div>
+      </div>
+      <p class="explain soft">Type a friend's name and make them a code. Only your PC can make codes, and each one says who it's for.</p>
+      <div class="make">
+        <input type="text" placeholder="Their name" bind:value={friend} maxlength="40" onkeydown={(e) => e.key === "Enter" && friend.trim() && makeCode()} />
+        <button class="btn primary" disabled={!friend.trim()} onclick={makeCode}>Make code</button>
+      </div>
+      {#if settings.issuedCodes?.length}
+        <ul class="codes">
+          {#each settings.issuedCodes as c (c.name)}
+            <li class:fresh={fresh === c.name}>
+              <b>{c.name}</b>
+              <code>{c.code}</code>
+              <span class="when">{when(c.madeAt)}</span>
+              <button class="btn" onclick={() => copy(c.code)}>Copy</button>
+              <button class="x" title="Remove from this list (the code still works)" aria-label="Remove" onclick={() => forget(c.name)}>✕</button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
+  {/snippet}
   <header class="head">
     <div>
       <h2>Dev</h2>
-      <p>Unlocked for {dev.name}. Only people with a code can see this.</p>
+      <p>{dev.owner ? "Your PC: always unlocked. Friends need a code from you." : `Unlocked for ${dev.name}. Only people with a code can see this.`}</p>
     </div>
   </header>
 
@@ -180,6 +232,8 @@
       uses the console, so nothing marks your save as cheated.
     </p>
   </section>
+
+  {#if dev.owner}{@render giveAccess()}{/if}
 </div>
 
 <style>
@@ -396,6 +450,72 @@
     color: var(--text-3);
     font-size: 12px;
     margin-top: 6px;
+  }
+  .access {
+    padding: 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .access .explain {
+    margin-top: 0;
+  }
+  .make {
+    display: flex;
+    gap: 8px;
+  }
+  .make input {
+    flex: 1;
+    max-width: 320px;
+  }
+  .codes {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .codes li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--stroke);
+    transition: border-color 300ms var(--ease-smooth-out);
+  }
+  .codes li.fresh {
+    border-color: rgba(61, 242, 176, 0.5);
+  }
+  .codes b {
+    font-size: 13.5px;
+    min-width: 90px;
+  }
+  .codes code {
+    flex: 1;
+    min-width: 0;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 11.5px;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: all;
+  }
+  .when {
+    font-size: 12px;
+    color: var(--text-3);
+  }
+  .x {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    color: var(--text-3);
+  }
+  .x:hover {
+    color: var(--text);
+    background: var(--glass-hover);
   }
   .foot {
     font-size: 12px;

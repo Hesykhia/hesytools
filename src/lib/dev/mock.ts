@@ -80,9 +80,9 @@ function fakeFrame(maxWidth: number): ArrayBuffer {
 
 let viewerChecks = 0;
 let shutdownTimer: { endsAt: number; restart: boolean } | null = null;
-let devState: { unlocked: boolean; name: string | null } = new URLSearchParams(location.search).get("scene") === "dev"
-  ? { unlocked: true, name: "hesy" }
-  : { unlocked: false, name: null };
+let devState: { unlocked: boolean; name: string | null; owner: boolean } = new URLSearchParams(location.search).get("scene") === "dev"
+  ? { unlocked: true, name: "you (owner)", owner: true }
+  : { unlocked: false, name: null, owner: false };
 
 let macros: Macro[] = [
   {
@@ -297,7 +297,7 @@ export function install() {
         case "dev_status":
           return devState;
         case "set_dev_code":
-          devState = a.code ? { unlocked: true, name: "hesy" } : { unlocked: false, name: null };
+          devState = a.code ? { unlocked: true, name: "hesy", owner: false } : { unlocked: false, name: null, owner: false };
           return devState;
         case "set_soul_config":
           settings.soul = a.config;
@@ -316,6 +316,15 @@ export function install() {
         case "install_soul_helper":
         case "open_link":
           return;
+        case "make_dev_code":
+          settings.issuedCodes = [
+            { name: a.name.trim(), code: "HT-" + btoa(a.name + "-demo-signature-0123456789").replace(/=/g, ""), madeAt: Date.now() },
+            ...(settings.issuedCodes ?? []).filter((c: any) => c.name !== a.name.trim()),
+          ];
+          return structuredClone(settings);
+        case "forget_dev_code":
+          settings.issuedCodes = (settings.issuedCodes ?? []).filter((c: any) => c.name !== a.name);
+          return structuredClone(settings);
         case "list_windows":
           return [
             { exe: "RobloxPlayerBeta.exe", title: "Roblox", x: 0, y: 0, w: 1920, h: 1080, handle: 1 },

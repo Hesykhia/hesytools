@@ -73,11 +73,37 @@ struct DevStatus {
     unlocked: bool,
     /// Who the code was made for.
     name: Option<String>,
+    /// This PC has the private key: always unlocked, can make codes.
+    owner: bool,
 }
 
 fn dev_status_of(s: &Settings) -> DevStatus {
-    let name = s.dev_code.as_deref().and_then(dev::check);
-    DevStatus { unlocked: name.is_some(), name }
+    static OWNER: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let owner = *OWNER.get_or_init(|| dev::owner_seed().is_some());
+    let name = s.dev_code.as_deref().and_then(dev::check).or_else(|| owner.then(|| "you (owner)".to_string()));
+    DevStatus { unlocked: name.is_some(), name, owner }
+}
+
+/// Owner only: make an access code for a friend and remember it.
+#[tauri::command]
+fn make_dev_code(a: AppState, name: String) -> Result<Settings, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() || name.len() > 40 {
+        return Err("Give it a name (up to 40 characters)".into());
+    }
+    let seed = dev::owner_seed().ok_or("Only the owner's PC can make codes")?;
+    let code = dev::make_code(&seed, &name);
+    a.update(|s| {
+        s.issued_codes.retain(|c| c.name != name);
+        s.issued_codes.insert(0, settings::IssuedCode { name: name.clone(), code, made_at: macro_store::now_ms() });
+    })
+}
+
+/// Owner only: forget a code from the list (it keeps working; codes can't be
+/// taken back once given).
+#[tauri::command]
+fn forget_dev_code(a: AppState, name: String) -> Result<Settings, String> {
+    a.update(|s| s.issued_codes.retain(|c| c.name != name))
 }
 
 struct SoulHost {
@@ -1436,6 +1462,8 @@ pub fn run() {
             soul_report,
             install_soul_helper,
             open_link,
+            make_dev_code,
+            forget_dev_code,
             pick_point,
             cancel_pick,
             clicker_toggle,

@@ -70,6 +70,15 @@ pub enum WatchAction {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct IssuedCode {
+    pub name: String,
+    pub code: String,
+    /// Unix ms.
+    pub made_at: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ClickAt {
     /// On the thing that was found (image, colour), else the area's middle.
@@ -155,6 +164,8 @@ pub struct Settings {
     pub dev_code: Option<String>,
     /// Shared secret between hesytools and its browser helper.
     pub helper_token: String,
+    /// Codes the owner has handed out (owner's PC only).
+    pub issued_codes: Vec<IssuedCode>,
     pub soul: crate::soul::SoulConfig,
 }
 
@@ -175,6 +186,7 @@ impl Default for Settings {
             watches: Vec::new(),
             dev_code: None,
             helper_token: String::new(),
+            issued_codes: Vec::new(),
             soul: Default::default(),
         }
     }
