@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         hesytools · Soul Clicker helper
 // @namespace    hesytools
-// @version      1.1.0
+// @version      1.2.0
 // @description  Lets hesytools play Soul Clicker for you: catches favors, buys, runs the Ritual. Only presses the game's own buttons.
 // @match        https://www.deadchaps.gg/soul-clicker*
 // @match        https://deadchaps.gg/soul-clicker*
@@ -22,7 +22,7 @@
 
   const BRIDGE = "http://127.0.0.1:__PORT__/soul";
   const TOKEN = "__TOKEN__";
-  const VERSION = "1.1.0";
+  const VERSION = "1.2.0";
 
   /** Off until hesytools says otherwise. */
   let cfg = {
@@ -122,15 +122,6 @@
       }
   }
 
-  /** Make sure the shop buys one at a time (not sells, not x100). */
-  function shopToOne() {
-    const ctl = $$(".shop-controls button");
-    const buy = ctl.find((b) => text(b) === "BUY");
-    const one = ctl.find((b) => text(b) === "x1");
-    if (buy && !buy.classList.contains("on")) buy.click();
-    if (one && !one.classList.contains("on")) one.click();
-  }
-
   function buyUpgrade() {
     // "rumor" cards are the ??? ones that can't be bought yet.
     const card = $$(".shelf button.card:not(.rumor)").find(isOpen);
@@ -141,23 +132,46 @@
     return true;
   }
 
-  /** The generator with the most souls per second per soul spent. */
-  function buyGenerator() {
-    let best = null;
+  /** The shop is set to Sell: never touch generators then. */
+  const selling = () => !!$(".mode-toggle button.on.sell") || !!$(".gens button.gen.selling");
+
+  /** What each generator button offers right now, from its own label:
+   * "Buy 10 Trooper for 1,100 souls, owned 5". */
+  function offers() {
+    const out = [];
     for (const g of $$(".gens button.gen")) {
-      if (g.classList.contains("mystery")) continue;
-      const cost = parseNum(text(g.querySelector(".gen-cost")));
-      const sps = parseNum(text(g.querySelector(".gen-sps")));
-      if (!(cost > 0) || !(sps > 0)) continue;
-      const value = sps / cost;
-      if (!best || value > best.value) best = { g, value };
+      if (g.classList.contains("mystery") || g.style.display === "none") continue;
+      const m = (g.getAttribute("aria-label") || "").match(/^Buy (\d+) (.+) for (.+) souls, owned/);
+      if (!m) continue;
+      const qty = parseInt(m[1], 10);
+      const cost = parseNum(m[3]);
+      const each = parseNum(text(g.querySelector(".gen-sps")));
+      if (!(qty > 0) || !(cost > 0) || !(each > 0)) continue;
+      out.push({ g, name: m[2], qty, cost, gain: each * qty, can: isOpen(g) });
     }
-    // Wait for the best one rather than wasting souls on worse ones.
-    if (!best || !isOpen(best.g)) return false;
-    shopToOne();
+    return out;
+  }
+
+  /** Buy the generator that pays for itself soonest: time to afford it at
+   * the current income, plus the time it takes to earn its price back. */
+  function buyGenerator() {
+    if (selling()) {
+      stats.last = "Shop is in Sell mode, not buying";
+      return false;
+    }
+    const souls = parseNum(text($(".souls-count"))) || 0;
+    const sps = parseNum(text($(".sps-line b"))) || 0;
+    let best = null;
+    for (const o of offers()) {
+      const wait = o.cost <= souls ? 0 : sps > 0 ? (o.cost - souls) / sps : Infinity;
+      const payback = wait + o.cost / o.gain;
+      if (!best || payback < best.payback) best = { ...o, payback };
+    }
+    // Save up for the best one rather than spending on worse ones.
+    if (!best || !best.can) return false;
     press(best.g);
-    stats.gens++;
-    stats.last = "Bought " + text(best.g.querySelector(".gen-name"));
+    stats.gens += best.qty;
+    stats.last = "Bought " + (best.qty > 1 ? best.qty + " " : "") + best.name;
     return true;
   }
 
