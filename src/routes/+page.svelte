@@ -23,7 +23,7 @@
   import WatchPage from "$lib/components/watch/WatchPage.svelte";
   import SettingsPage from "$lib/components/SettingsPage.svelte";
   import UpdateCard from "$lib/components/UpdateCard.svelte";
-  import { checkForUpdates } from "$lib/update.svelte";
+  import { startAutoCheck } from "$lib/update.svelte";
   import { initShutdown, remaining, shutdown } from "$lib/shutdown.svelte";
   import { forwardWindowInput } from "$lib/windowInput";
 
@@ -66,8 +66,6 @@
       .getSettings()
       .then((s) => {
         settings = s;
-        // A quiet check a few seconds after launch, so startup stays snappy.
-        if (s.autoCheckUpdates) setTimeout(() => checkForUpdates(), 4000);
       })
       .catch((e) => (loadError = errorText(e)));
     api.systemInfo().then((i) => (info = i));
@@ -88,8 +86,10 @@
       }),
     ];
     const stopForwarding = forwardWindowInput();
+    const stopChecking = startAutoCheck(() => settings?.autoCheckUpdates ?? false);
     return () => {
       stopForwarding();
+      stopChecking();
       unlisteners.forEach((u) => u.then((f) => f()));
     };
   });

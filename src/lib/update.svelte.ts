@@ -9,7 +9,7 @@ export const update = $state({
   phase: "idle" as "idle" | "available" | "downloading" | "installing",
   downloaded: 0,
   total: null as number | null,
-  /** "Later" hides the card until the next launch. */
+  /** "Later" hides the card until a newer version than this one shows up. */
   dismissed: false,
   checking: false,
 });
@@ -20,9 +20,12 @@ export async function checkForUpdates(manual = false) {
   update.checking = true;
   try {
     const info = await api.checkUpdate();
+    const isNew = info?.version !== update.info?.version;
     update.info = info;
     update.phase = info ? "available" : "idle";
-    if (info) update.dismissed = false;
+    // Checking again in the background shouldn't bring back a card they
+    // already said "Later" to, unless it's for an even newer version.
+    if (info && (isNew || manual)) update.dismissed = false;
     else if (manual) toast("You're on the latest version");
   } catch (e) {
     // Offline or GitHub unreachable: only worth mentioning if they asked.
@@ -53,4 +56,34 @@ export async function installUpdate() {
   } finally {
     unlisten();
   }
+}
+
+const RECHECK_EVERY = 3 * 60 * 60 * 1000;
+/** Coming back to the window rechecks, at most this often. */
+const RECHECK_ON_FOCUS = 30 * 60 * 1000;
+
+/**
+ * Check shortly after launch, then every few hours and when the window comes
+ * back into view. hesytools mostly lives in the tray, so a launch-only check
+ * could miss updates for days.
+ */
+export function startAutoCheck(enabled: () => boolean): () => void {
+  let last = 0;
+  const check = () => {
+    if (!enabled()) return;
+    last = Date.now();
+    checkForUpdates();
+  };
+  const onFocus = () => {
+    if (Date.now() - last > RECHECK_ON_FOCUS) check();
+  };
+  // A quiet check a few seconds after launch, so startup stays snappy.
+  const first = setTimeout(check, 4000);
+  const timer = setInterval(check, RECHECK_EVERY);
+  addEventListener("focus", onFocus);
+  return () => {
+    clearTimeout(first);
+    clearInterval(timer);
+    removeEventListener("focus", onFocus);
+  };
 }
