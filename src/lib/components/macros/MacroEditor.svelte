@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
-  import { api, errorText, type Macro } from "$lib/api";
+  import { api, errorText, type Macro, type Step } from "$lib/api";
   import { activity, removeMacro, upsertMacro } from "$lib/activity.svelte";
   import { formatMs, durationMs, actionCount } from "$lib/steps";
   import { toast } from "$lib/toast.svelte";
@@ -8,6 +8,7 @@
   import InlineNumber from "../ui/InlineNumber.svelte";
   import Popover from "../ui/Popover.svelte";
   import StepList from "./StepList.svelte";
+  import ClickMap from "./ClickMap.svelte";
 
   let { source, onback }: { source: Macro; onback: () => void } = $props();
 
@@ -94,6 +95,9 @@
 
   const SPEEDS = [0.25, 0.5, 1, 1.5, 2, 4];
   let total = $derived(durationMs(m.steps) / (m.speed || 1));
+  const placedClick = (steps: Step[]): boolean =>
+    steps.some((s) => (s.type === "click" && !!s.at) || (s.type === "repeat" && placedClick(s.steps)));
+  let hasClicks = $derived(placedClick(m.steps));
   let repeatText = $derived(m.repeat === 0 ? "until I stop it" : m.repeat === 1 ? "once" : `${m.repeat} times`);
 </script>
 
@@ -164,6 +168,18 @@
       {/if}
     </button>
   </section>
+
+  {#if hasClicks}
+    <section class="map glass">
+      <div class="map-head">
+        <span class="eyebrow">Where it clicks</span>
+        <span class="hint">Numbers match the steps below{playing ? "; the pulsing dot is playing now" : ""}.</span>
+      </div>
+      <div class="map-box">
+        <ClickMap steps={m.steps} active={playing ? activity.step : -1} numbered />
+      </div>
+    </section>
+  {/if}
 
   <section class="steps">
     {#if m.steps.length === 0}
@@ -399,6 +415,22 @@
 
   .steps {
     padding: 0 2px;
+  }
+  .map {
+    padding: 14px 16px;
+  }
+  .map-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .map-head .hint {
+    font-size: 12px;
+    color: var(--text-3);
+  }
+  .map-box {
+    height: 150px;
   }
   .empty {
     color: var(--text-3);

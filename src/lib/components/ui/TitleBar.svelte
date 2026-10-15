@@ -8,7 +8,7 @@
 
 <header class="titlebar" data-tauri-drag-region>
   <div class="brand" data-tauri-drag-region>
-    <span class="mark" aria-hidden="true"></span>
+    <img class="mark" src="/logo.png" alt="" aria-hidden="true" />
     <span class="name" data-tauri-drag-region>hesytools</span>
   </div>
 
@@ -43,11 +43,9 @@
     gap: 10px;
   }
   .mark {
-    width: 18px;
-    height: 18px;
-    border-radius: 6px;
-    background: conic-gradient(from 200deg, var(--violet), var(--pink), var(--blue), var(--violet));
-    box-shadow: 0 0 16px rgba(139, 108, 255, 0.6);
+    width: 22px;
+    height: 22px;
+    filter: drop-shadow(0 0 10px rgba(139, 108, 255, 0.5));
   }
   .name {
     font-weight: 650;
