@@ -14,7 +14,11 @@ export const MOUSE_BUTTONS: { value: MouseButton; label: string }[] = [
   { value: "Mouse5", label: "Mouse 5 (forward)" },
 ];
 
-export type ClickAction = { kind: "mouse"; button: MouseButton } | { kind: "key"; key: string };
+export type ClickAction =
+  | { kind: "mouse"; button: MouseButton }
+  | { kind: "key"; key: string }
+  /** Click and press a key together every tick. */
+  | { kind: "both"; button: MouseButton; key: string };
 export type ClickPosition = { kind: "current" } | { kind: "fixed"; x: number; y: number };
 export type StopAfter =
   | { kind: "never" }

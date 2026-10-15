@@ -18,6 +18,9 @@ use std::time::{Duration, Instant};
 pub enum ClickAction {
     Mouse { button: MouseButton },
     Key { key: Key },
+    /// Click and press a key together on every tick (the old tool's
+    /// "mouse on + keyboard on").
+    Both { button: MouseButton, key: Key },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -173,10 +176,16 @@ fn click_loop(cfg: &ClickerConfig, w: &Waiter, shared: &Shared) {
     // A hold longer than the interval would merge clicks into one long press.
     let hold = Duration::from_secs_f64(cfg.hold_ms.clamp(0.0, interval * 0.5) / 1000.0);
     let jitter = cfg.jitter_ms.clamp(0.0, interval * 0.9);
-    let (down, up) = match &cfg.action {
-        ClickAction::Mouse { button } => (input::button_event(*button, true), input::button_event(*button, false)),
-        ClickAction::Key { key } => (input::key_event(*key, true), input::key_event(*key, false)),
+    // Presses go out in one SendInput batch so they land at the same instant.
+    let (down, up): (Vec<_>, Vec<_>) = match &cfg.action {
+        ClickAction::Mouse { button } => (vec![input::button_event(*button, true)], vec![input::button_event(*button, false)]),
+        ClickAction::Key { key } => (vec![input::key_event(*key, true)], vec![input::key_event(*key, false)]),
+        ClickAction::Both { button, key } => (
+            vec![input::button_event(*button, true), input::key_event(*key, true)],
+            vec![input::button_event(*button, false), input::key_event(*key, false)],
+        ),
     };
+    let tap: Vec<_> = down.iter().chain(&up).copied().collect();
     let mut rng = XorShift::seeded();
     let start = Instant::now();
     let mut next = start;
@@ -203,12 +212,12 @@ fn click_loop(cfg: &ClickerConfig, w: &Waiter, shared: &Shared) {
                 return;
             }
             if hold.is_zero() {
-                send(&[down, up]);
+                send(&tap);
             } else {
-                send(&[down]);
+                send(&down);
                 let finished = w.wait(hold);
                 // Always release, even when stopping mid-hold.
-                send(&[up]);
+                send(&up);
                 if !finished {
                     return;
                 }
@@ -263,6 +272,14 @@ impl XorShift {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn both_action_json() {
+        let a = ClickAction::Both { button: MouseButton::Left, key: Key::from_name("E").unwrap() };
+        let json = serde_json::to_string(&a).unwrap();
+        assert_eq!(json, r#"{"kind":"both","button":"LeftMouse","key":"E"}"#);
+        assert_eq!(serde_json::from_str::<ClickAction>(&json).unwrap(), a);
+    }
 
     #[test]
     fn config_json_shape() {

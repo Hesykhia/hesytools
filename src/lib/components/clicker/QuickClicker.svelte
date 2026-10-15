@@ -9,6 +9,7 @@
     onClickerState,
     type ClickerConfig,
     type HotkeyMode,
+    type MouseButton,
     type Settings,
   } from "$lib/api";
   import { toast } from "$lib/toast.svelte";
@@ -18,6 +19,7 @@
   import Slider from "../ui/Slider.svelte";
   import Disclosure from "../ui/Disclosure.svelte";
   import ClickerOrb from "./ClickerOrb.svelte";
+  import Toggle from "../ui/Toggle.svelte";
 
   let { settings = $bindable(), running = $bindable(false) }: { settings: Settings; running?: boolean } = $props();
 
@@ -97,10 +99,36 @@
     Mouse4: "Mouse 4",
     Mouse5: "Mouse 5",
   };
+  // The action is a mouse button, a key, or both at once. Remember the last
+  // button/key so switching one half off and on again keeps your choice.
+  let mouseOn = $derived(cfg.action.kind !== "key");
+  let keyOn = $derived(cfg.action.kind !== "mouse");
+  // svelte-ignore state_referenced_locally
+  let lastButton = $state<MouseButton>("button" in cfg.action ? cfg.action.button : "LeftMouse");
+  // svelte-ignore state_referenced_locally
+  let lastKey = $state("key" in cfg.action ? cfg.action.key : "E");
+  function setAction(mouse: boolean, button: MouseButton, key: boolean, keyName: string) {
+    lastButton = button;
+    lastKey = keyName;
+    if (!mouse && !key) {
+      toast("Turn on a mouse button, a key, or both");
+      return;
+    }
+    cfg.action =
+      mouse && key ? { kind: "both", button, key: keyName } : mouse ? { kind: "mouse", button } : { kind: "key", key: keyName };
+  }
+
+  const clickWord = (b: MouseButton, double: boolean, lead: boolean) => {
+    const name = double ? `double ${BUTTON[b]}` : BUTTON[b];
+    const text = `${name} click`;
+    return lead ? text[0].toUpperCase() + text.slice(1) : text;
+  };
   let actionText = $derived(
     cfg.action.kind === "mouse"
-      ? `${cfg.double ? "Double " : ""}${cfg.double ? BUTTON[cfg.action.button] : BUTTON[cfg.action.button][0].toUpperCase() + BUTTON[cfg.action.button].slice(1)} click`
-      : `Press ${cfg.action.key}`,
+      ? clickWord(cfg.action.button, cfg.double, true)
+      : cfg.action.kind === "key"
+        ? `Press ${cfg.action.key}`
+        : `${clickWord(cfg.action.button, cfg.double, true)} + press ${cfg.action.key}`,
   );
   let rateText = $derived.by(() => {
     const p = parts;
@@ -198,7 +226,8 @@
       if (!combo) return;
       const trigger = combo.split("+").pop()!;
       const mouse = MOUSE_BUTTONS.find((b) => b.value === trigger);
-      cfg.action = mouse ? { kind: "mouse", button: mouse.value } : { kind: "key", key: trigger };
+      if (mouse) setAction(true, mouse.value, keyOn, lastKey);
+      else setAction(mouseOn, lastButton, true, trigger);
     } finally {
       capturingKey = false;
     }
@@ -249,18 +278,21 @@
       {/snippet}
       {#snippet children()}
         <div class="field">
-          <span class="label">Mouse button</span>
-          <div class="tiles">
+          <span class="label-row">
+            <span class="label">Mouse button</span>
+            <Toggle checked={mouseOn} onchange={(v) => setAction(v, lastButton, keyOn, lastKey)} label="Click a mouse button" />
+          </span>
+          <div class="tiles" class:off={!mouseOn}>
             {#each MOUSE_BUTTONS as b}
               <button
                 class="tile"
-                class:on={cfg.action.kind === "mouse" && cfg.action.button === b.value}
-                onclick={() => (cfg.action = { kind: "mouse", button: b.value })}>{b.label.replace(/ \(.*\)/, "")}</button
+                class:on={mouseOn && lastButton === b.value}
+                onclick={() => setAction(true, b.value, keyOn, lastKey)}>{b.label.replace(/ \(.*\)/, "")}</button
               >
             {/each}
           </div>
         </div>
-        {#if cfg.action.kind === "mouse"}
+        {#if mouseOn}
           <div class="field">
             <span class="label">Click type</span>
             <Tabs
@@ -275,11 +307,15 @@
           </div>
         {/if}
         <div class="field">
-          <span class="label">Or a keyboard key</span>
-          <button class="tile wide" class:on={cfg.action.kind === "key"} class:listening={capturingKey} onclick={captureKey}>
-            {#if capturingKey}Press any key…{:else if cfg.action.kind === "key"}<kbd>{cfg.action.key}</kbd> click to change{:else}Choose a key…{/if}
+          <span class="label-row">
+            <span class="label">Keyboard key</span>
+            <Toggle checked={keyOn} onchange={(v) => setAction(mouseOn, lastButton, v, lastKey)} label="Press a key" />
+          </span>
+          <button class="tile wide" class:on={keyOn} class:off={!keyOn} class:listening={capturingKey} onclick={captureKey}>
+            {#if capturingKey}Press any key…{:else}<kbd>{lastKey}</kbd> click to change{/if}
           </button>
         </div>
+        <p class="note">Turn on both to click and press the key together every time.</p>
       {/snippet}
     </Popover>
 
@@ -318,7 +354,7 @@
       {/snippet}
     </Popover>
 
-    {#if cfg.action.kind === "mouse"}
+    {#if mouseOn}
       <Popover width={300}>
         {#snippet trigger({ toggle, open })}
           <button class="chip" class:open onclick={toggle}>{whereText}</button><span class="punct">,</span>
@@ -534,6 +570,18 @@
     text-transform: uppercase;
     color: var(--text-3);
     margin-bottom: 4px;
+  }
+  .label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .label-row .label {
+    margin: 0;
+  }
+  .tiles.off,
+  .tile.off {
+    opacity: 0.45;
   }
   .tiles {
     display: grid;

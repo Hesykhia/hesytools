@@ -9,7 +9,7 @@ import type { Macro, Settings } from "$lib/api";
 
 const settings: Settings = {
   clicker: {
-    action: { kind: "mouse", button: "LeftMouse" },
+    action: { kind: "both", button: "LeftMouse", key: "E" },
     intervalMs: 100,
     holdMs: 10,
     jitterMs: 0,
