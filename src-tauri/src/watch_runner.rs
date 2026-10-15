@@ -93,7 +93,7 @@ fn run(rule: WatchRule, waiter: &Waiter, app: &AppHandle, fire: &FireFn) {
     };
     let mut items = Vec::new();
     for c in rule.items() {
-        match Watcher::new(rule.region, c.clone()) {
+        match Watcher::new(rule.region, c.clone()).map(|w| w.in_window(rule.window.clone())) {
             Ok(watcher) => items.push(Item { watcher, was_matched: None, last_fire: None, active: false }),
             Err(e) => {
                 status(false, None, Some(e));

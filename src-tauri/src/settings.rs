@@ -84,7 +84,11 @@ pub struct WatchRule {
     pub id: String,
     pub name: String,
     pub enabled: bool,
+    /// With `window` set, relative to that window's top-left corner.
     pub region: Region,
+    /// Only look at this app (like OBS window capture), so anything on top
+    /// of it, e.g. a taskbar preview, can't trigger the watch.
+    pub window: Option<engine::window::WindowTarget>,
     pub condition: Condition,
     pub poll_ms: f64,
     pub action: WatchAction,
@@ -111,6 +115,7 @@ impl Default for WatchRule {
             name: "New watch".into(),
             enabled: false,
             region: Region::default(),
+            window: None,
             condition: Condition::TextAppears {
                 text: String::new(),
                 digits_after: None,

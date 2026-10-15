@@ -2,16 +2,19 @@
   // Live view of exactly what Screen Watch sees in a region, what it read,
   // and whether the condition matches right now.
   import { onDestroy } from "svelte";
-  import { api, errorText, type Condition, type Region, type ViewerCheck } from "$lib/api";
+  import { api, errorText, type Condition, type Region, type ViewerCheck, type WindowTarget } from "$lib/api";
 
   let {
     region,
     condition,
+    window = null,
     active = true,
     onpickcolor,
   }: {
     region: Region | null;
     condition: Condition;
+    /** Only look at this app's window (region is then relative to it). */
+    window?: WindowTarget | null;
     active?: boolean;
     /** Colour conditions: clicking the preview picks that pixel. */
     onpickcolor?: (dx: number, dy: number, rgb: [number, number, number]) => void;
@@ -32,7 +35,7 @@
 
   // Reset counters whenever what we're watching changes.
   $effect(() => {
-    JSON.stringify([region, condition]);
+    JSON.stringify([region, condition, window]);
     stats = { checks: 0, ocrRuns: 0 };
     check = null;
   });
@@ -41,7 +44,7 @@
     if (busy || !region || document.hidden) return;
     busy = true;
     try {
-      const c = await api.viewerCheck(id, $state.snapshot(region), $state.snapshot(condition));
+      const c = await api.viewerCheck(id, $state.snapshot(region), $state.snapshot(condition), $state.snapshot(window) ?? null);
       check = c;
       error = "";
       stats = { checks: stats.checks + 1, ocrRuns: stats.ocrRuns + (c.ocrRan ? 1 : 0) };

@@ -288,6 +288,14 @@ export function install() {
             width: 320,
             height: 80,
           };
+        case "list_windows":
+          return [
+            { exe: "RobloxPlayerBeta.exe", title: "Roblox", x: 0, y: 0, w: 1920, h: 1080, handle: 1 },
+            { exe: "firefox.exe", title: "Soul Clicker · Free Deadlock Idle Game · DeadChaps", x: -1928, y: -8, w: 1936, h: 1048, handle: 2 },
+            { exe: "Discord.exe", title: "#general | hesy", x: 200, y: 120, w: 1280, h: 800, handle: 3 },
+          ];
+        case "find_window":
+          return { ...a.target, x: 0, y: 0, w: 1920, h: 1080, handle: 1 };
         case "viewer_frame":
           return fakeFrame(a.maxWidth ?? 560);
         case "viewer_stop":

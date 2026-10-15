@@ -55,6 +55,20 @@ export interface RecordOptions {
   minWaitMs: number;
 }
 
+/** An app window, remembered by program + title so it survives restarts. */
+export interface WindowTarget {
+  exe: string;
+  title: string;
+}
+
+export interface WindowInfo extends WindowTarget {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  handle: number;
+}
+
 export interface Region {
   x: number;
   y: number;
@@ -112,7 +126,10 @@ export interface WatchRule {
   id: string;
   name: string;
   enabled: boolean;
+  /** Relative to `window`'s top-left corner when that's set. */
   region: Region;
+  /** Only look at this app's window. */
+  window?: WindowTarget | null;
   condition: Condition;
   pollMs: number;
   action: WatchAction;
@@ -269,8 +286,10 @@ export const api = {
   pickRegion: () => invoke<Region | null>("pick_region"),
   captureTemplate: () => invoke<Template | null>("capture_template"),
   /** `id` identifies one live viewer; several can run at once. */
-  viewerCheck: (id: string, region: Region, condition: Condition) =>
-    invoke<ViewerCheck>("viewer_check", { id, region, condition }),
+  viewerCheck: (id: string, region: Region, condition: Condition, window: WindowTarget | null = null) =>
+    invoke<ViewerCheck>("viewer_check", { id, region, condition, window }),
+  listWindows: () => invoke<WindowInfo[]>("list_windows"),
+  findWindow: (target: WindowTarget) => invoke<WindowInfo | null>("find_window", { target }),
   /** Raw bytes: u32 width, u32 height (little-endian), then RGBA pixels. */
   viewerFrame: (id: string, maxWidth: number) => invoke<ArrayBuffer>("viewer_frame", { id, maxWidth }),
   viewerStop: (id: string) => invoke<void>("viewer_stop", { id }),

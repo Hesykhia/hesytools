@@ -81,6 +81,9 @@ pub struct Check {
     pub found: Option<imagematch::Found>,
     /// Whether this check had to run OCR (false = pixels unchanged, reused).
     pub ocr_ran: bool,
+    /// Screen position of the region's top-left corner at this check (it
+    /// moves with the window when watching a single app).
+    pub origin: (i32, i32),
     pub capture_ms: f64,
     pub ocr_ms: f64,
 }
@@ -95,6 +98,10 @@ pub struct Watcher {
     last: Option<Check>,
     /// The most recent capture, for the live viewer.
     pub frame: Option<Frame>,
+    /// Only look at this app's window; `region` is then relative to it.
+    pub window: Option<crate::window::WindowTarget>,
+    /// The window last found for `window`.
+    handle: Option<isize>,
 }
 
 impl Watcher {
@@ -104,12 +111,31 @@ impl Watcher {
             Condition::ImageAppears { template, .. } => Some(template.gray()?),
             _ => None,
         };
-        Ok(Self { region, condition, ocr, template, last_fp: None, baseline_fp: None, last: None, frame: None })
+        Ok(Self { region, condition, ocr, template, last_fp: None, baseline_fp: None, last: None, frame: None, window: None, handle: None })
+    }
+
+    /// Watch inside one app's window instead of the whole screen.
+    pub fn in_window(mut self, window: Option<crate::window::WindowTarget>) -> Self {
+        self.window = window;
+        self
+    }
+
+    fn grab(&mut self) -> Result<(Frame, (i32, i32)), String> {
+        let Some(target) = &self.window else {
+            return Ok((capture::capture(self.region)?, (self.region.x, self.region.y)));
+        };
+        let alive = self.handle.filter(|h| crate::window::rect(*h).is_some());
+        let handle = match alive {
+            Some(h) => h,
+            None => crate::window::find(target).ok_or_else(|| format!("{} isn't open", target.exe))?,
+        };
+        self.handle = Some(handle);
+        capture::capture_window(handle, self.region)
     }
 
     pub fn check(&mut self) -> Result<Check, String> {
         let t = Instant::now();
-        let frame = capture::capture(self.region)?;
+        let (frame, origin) = self.grab()?;
         let capture_ms = t.elapsed().as_secs_f64() * 1000.0;
         let fp = frame.fingerprint();
         let baseline = *self.baseline_fp.get_or_insert(fp);
@@ -160,10 +186,11 @@ impl Watcher {
                         _ => unreachable!(),
                     };
                     let number = hit.or(numbers.first().copied());
-                    Check { matched, text: Some(text), number, numbers, found: None, ocr_ran: true, capture_ms, ocr_ms }
+                    Check { matched, text: Some(text), number, numbers, found: None, ocr_ran: true, capture_ms, ocr_ms, origin: (0, 0) }
                 }
             }
         };
+        let check = Check { origin, ..check };
         self.frame = Some(frame);
         self.last = Some(check.clone());
         Ok(check)
@@ -183,7 +210,17 @@ fn find_color(f: &Frame, rgb: [u8; 3], tolerance: u8) -> Option<(u32, u32)> {
 }
 
 fn empty(capture_ms: f64) -> Check {
-    Check { matched: false, text: None, number: None, numbers: Vec::new(), found: None, ocr_ran: false, capture_ms, ocr_ms: 0.0 }
+    Check {
+        matched: false,
+        text: None,
+        number: None,
+        numbers: Vec::new(),
+        found: None,
+        ocr_ran: false,
+        capture_ms,
+        ocr_ms: 0.0,
+        origin: (0, 0),
+    }
 }
 
 fn contains_any(haystack: &str, phrases: &str, digits_after: Option<u32>) -> bool {

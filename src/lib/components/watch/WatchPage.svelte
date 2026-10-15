@@ -10,6 +10,7 @@
   import ActionEditor from "./ActionEditor.svelte";
   import ConditionEditor from "./ConditionEditor.svelte";
   import RegionChip from "./RegionChip.svelte";
+  import WindowChip from "./WindowChip.svelte";
   import WatchViewer from "./WatchViewer.svelte";
 
   let { settings = $bindable() }: { settings: Settings } = $props();
@@ -65,6 +66,7 @@
       name: `Watch ${rules.length + 1}`,
       enabled: false,
       region: { x: 0, y: 0, w: 0, h: 0 },
+      window: null,
       condition: { kind: "textAppears", text: "", digitsAfter: null },
       pollMs: 250,
       action: { kind: "notify" },
@@ -133,8 +135,10 @@
           <div>
             <span class="label">Where</span>
             <div class="line">
-              <RegionChip bind:region={r.region} />
-              {#if ready(r)}<span class="soft">at {r.region.x}, {r.region.y}</span>{:else}<span class="soft">drag a box on any monitor</span>{/if}
+              <RegionChip bind:region={r.region} window={r.window} />
+              <WindowChip bind:window={r.window} bind:region={r.region} />
+              {#if !ready(r)}<span class="soft">drag a box {r.window ? "inside the window" : "on any monitor"}</span>
+              {:else if !r.window}<span class="soft">at {r.region.x}, {r.region.y}</span>{/if}
             </div>
           </div>
         </div>
@@ -199,6 +203,7 @@
         <WatchViewer
           region={ready(r) ? r.region : null}
           condition={vc}
+          window={r.window ?? null}
           onpickcolor={vc.kind === "colorAt" || vc.kind === "colorAppears" ? (dx, dy, rgb) => pickColor(vc, dx, dy, rgb) : undefined}
         />
         <p class="hint">It triggers when this changes from “doesn't match” to “matches”.</p>

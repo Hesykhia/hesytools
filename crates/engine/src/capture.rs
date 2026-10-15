@@ -139,6 +139,69 @@ pub fn capture(r: Region) -> Result<Frame, String> {
     }
 }
 
+/// Grab region `r` (relative to the window's top-left corner) from just
+/// this window, the way OBS's window capture does: whatever is on top of it
+/// (other windows, taskbar previews) isn't in the picture. Returns the frame
+/// and the region's current screen position.
+pub fn capture_window(handle: isize, r: Region) -> Result<(Frame, (i32, i32)), String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow};
+    let (wx, wy, ww, wh) = crate::window::rect(handle).ok_or("The window was closed")?;
+    if crate::window::is_minimized(handle) {
+        return Err("The window is minimized".into());
+    }
+    if r.w == 0 || r.h == 0 || r.x < 0 || r.y < 0 || r.x as u32 + r.w > ww || r.y as u32 + r.h > wh {
+        return Err("The area isn't inside the window any more (was it resized?)".into());
+    }
+    unsafe {
+        let screen = GetDC(None);
+        if screen.is_invalid() {
+            return Err("Couldn't access the screen".into());
+        }
+        let mem = CreateCompatibleDC(Some(screen));
+        let bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: ww as i32,
+                biHeight: -(wh as i32),
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut bits = std::ptr::null_mut();
+        let result = match CreateDIBSection(Some(mem), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) {
+            Ok(dib) => {
+                let old = SelectObject(mem, dib.into());
+                // PW_RENDERFULLCONTENT: also works for GPU-drawn windows
+                // (browsers, games in windowed/borderless mode).
+                let ok = PrintWindow(HWND(handle as *mut _), mem, PRINT_WINDOW_FLAGS(2)).as_bool();
+                let _ = GdiFlush();
+                let out = if ok {
+                    let all = std::slice::from_raw_parts(bits as *const u8, (ww * wh * 4) as usize);
+                    let mut bgra = Vec::with_capacity((r.w * r.h * 4) as usize);
+                    for row in r.y as u32..r.y as u32 + r.h {
+                        let start = ((row * ww + r.x as u32) * 4) as usize;
+                        bgra.extend_from_slice(&all[start..start + (r.w * 4) as usize]);
+                    }
+                    Ok((Frame { w: r.w, h: r.h, bgra }, (wx + r.x, wy + r.y)))
+                } else {
+                    Err("Windows couldn't capture that window".to_string())
+                };
+                SelectObject(mem, old);
+                let _ = DeleteObject(dib.into());
+                out
+            }
+            Err(e) => Err(format!("Couldn't allocate capture buffer: {e}")),
+        };
+        let _ = DeleteDC(mem);
+        ReleaseDC(None, screen);
+        result
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

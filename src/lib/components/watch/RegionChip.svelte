@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { api, errorText, type Region } from "$lib/api";
+  import { api, errorText, type Region, type WindowTarget } from "$lib/api";
   import { toast } from "$lib/toast.svelte";
 
-  let { region = $bindable() }: { region: Region } = $props();
+  let { region = $bindable(), window = null }: { region: Region; window?: WindowTarget | null } = $props();
   let picking = $state(false);
   let has = $derived(region.w > 0 && region.h > 0);
 
@@ -10,7 +10,18 @@
     picking = true;
     try {
       const r = await api.pickRegion();
-      if (r) region = r;
+      if (!r) return;
+      if (!window) {
+        region = r;
+        return;
+      }
+      // App-only watch: store the area relative to that window.
+      const w = await api.findWindow($state.snapshot(window));
+      if (!w) return toast(`${window.exe} isn't open`, "error");
+      const x = r.x - w.x;
+      const y = r.y - w.y;
+      if (x < 0 || y < 0 || x + r.w > w.w || y + r.h > w.h) return toast("Select an area inside the window", "error");
+      region = { x, y, w: r.w, h: r.h };
     } catch (e) {
       toast(errorText(e), "error");
     } finally {

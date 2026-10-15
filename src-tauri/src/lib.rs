@@ -551,7 +551,8 @@ fn resume_macros(app: &AppHandle, a: &App, holder: &str) {
 }
 
 /// Screen point of what a watch found: the image's centre or the matching
-/// pixel; text has no position, so the middle of the area.
+/// pixel; text has no position, so the middle of the area. Uses where the
+/// area was at this check, which follows the window for app-only watches.
 fn found_point(rule: &WatchRule, condition: &Condition, check: &Check) -> (i32, i32) {
     let r = rule.region;
     let (dx, dy) = match (condition, check.found) {
@@ -560,7 +561,7 @@ fn found_point(rule: &WatchRule, condition: &Condition, check: &Check) -> (i32, 
         (Condition::ColorAt { dx, dy, .. }, _) => (*dx, *dy),
         _ => (r.w / 2, r.h / 2),
     };
-    (r.x + dx as i32, r.y + dy as i32)
+    (check.origin.0 + dx as i32, check.origin.1 + dy as i32)
 }
 
 /// Click at a point like a person would (held long enough for games to
@@ -885,13 +886,14 @@ async fn viewer_check(
     id: String,
     region: Region,
     condition: Condition,
+    window: Option<engine::window::WindowTarget>,
 ) -> Result<ViewerCheck, String> {
-    let key = serde_json::to_string(&(region, &condition)).unwrap_or_default();
+    let key = serde_json::to_string(&(region, &condition, &window)).unwrap_or_default();
     let a = a.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut viewers = a.viewers.lock();
         if viewers.get(&id).is_none_or(|(k, _)| *k != key) {
-            viewers.insert(id.clone(), (key, Watcher::new(region, condition)?));
+            viewers.insert(id.clone(), (key, Watcher::new(region, condition)?.in_window(window)));
         }
         let (_, w) = viewers.get_mut(&id).expect("just set");
         let check = w.check()?;
@@ -922,6 +924,20 @@ fn viewer_frame(a: AppState, id: String, max_width: u32) -> tauri::ipc::Response
         out.extend_from_slice(&[px[2], px[1], px[0], 255]);
     }
     tauri::ipc::Response::new(out)
+}
+
+/// Open app windows, for picking which one a watch looks at.
+#[tauri::command]
+fn list_windows() -> Vec<engine::window::WindowInfo> {
+    engine::window::list()
+}
+
+/// Where a watch's app window is right now (to convert areas between
+/// screen and window coordinates), if it's open.
+#[tauri::command]
+fn find_window(target: engine::window::WindowTarget) -> Option<engine::window::WindowInfo> {
+    let handle = engine::window::find(&target)?;
+    engine::window::list().into_iter().find(|w| w.handle == handle)
 }
 
 #[tauri::command]
@@ -1300,6 +1316,8 @@ pub fn run() {
             capture_hotkey,
             cancel_capture,
             window_input,
+            list_windows,
+            find_window,
             pick_point,
             cancel_pick,
             clicker_toggle,
