@@ -6,17 +6,20 @@
     cps,
     countdown,
     onclick,
+    size = 216,
   }: {
     phase: "idle" | "countdown" | "running";
     cps: number;
     countdown: number;
     onclick: () => void;
+    /** Diameter in px; everything inside scales with it. */
+    size?: number;
   } = $props();
 
   let cpsText = $derived(cps >= 10 ? Math.round(cps).toString() : cps.toFixed(1));
 </script>
 
-<button class="orb {phase}" {onclick} aria-label={phase === "running" ? "Stop clicking" : "Start clicking"}>
+<button class="orb {phase}" {onclick} style:--size="{size}px" style:--k={size / 216} aria-label={phase === "running" ? "Stop clicking" : "Start clicking"}>
   <span class="halo"></span>
   <span class="sonar s1"></span>
   <span class="sonar s2"></span>
@@ -44,8 +47,8 @@
     --c3: var(--blue);
     --glow: rgba(139, 108, 255, 0.55);
     position: relative;
-    width: 216px;
-    height: 216px;
+    width: var(--size);
+    height: var(--size);
     border-radius: 50%;
     display: grid;
     place-items: center;
@@ -135,6 +138,8 @@
   }
 
   .play {
+    width: calc(34px * var(--k));
+    height: calc(34px * var(--k));
     color: white;
     margin-left: 4px;
     filter: drop-shadow(0 0 12px var(--glow));
@@ -146,7 +151,7 @@
     margin-top: 6px;
   }
   .big {
-    font-size: 54px;
+    font-size: calc(54px * var(--k));
     font-weight: 700;
     letter-spacing: -0.04em;
     line-height: 1;
@@ -167,7 +172,7 @@
   }
   .hint {
     position: absolute;
-    bottom: 34px;
+    bottom: calc(34px * var(--k));
     font-size: 11px;
     color: var(--text-3);
     opacity: 0;

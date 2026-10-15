@@ -3,7 +3,6 @@
   import { activity, upsertMacro } from "$lib/activity.svelte";
   import { toast } from "$lib/toast.svelte";
   import MacrosEmpty from "../MacrosEmpty.svelte";
-  import Toggle from "../ui/Toggle.svelte";
   import MacroCard from "./MacroCard.svelte";
 
   let { settings = $bindable(), onopen }: { settings: Settings; onopen: (id: string) => void } = $props();
@@ -17,11 +16,6 @@
     }
   }
 
-  async function setMoves(v: boolean) {
-    const options = { ...settings.record, recordMoves: v };
-    await api.setRecordOptions(options);
-    settings.record = options;
-  }
 
   let fileInput: HTMLInputElement;
   async function importFiles(e: Event) {
@@ -52,10 +46,6 @@
       <p>Record what you do once, replay it forever.</p>
     </div>
     <div class="actions">
-      <label class="moves">
-        <Toggle checked={settings.record.recordMoves} onchange={setMoves} label="Record mouse movement" />
-        <span>Record mouse movement</span>
-      </label>
       <button class="btn" onclick={() => fileInput.click()} title="Import macros from the old hesytools (v4 .json files)">Import</button>
       <input bind:this={fileInput} type="file" accept=".json,application/json" multiple hidden onchange={importFiles} />
       <button class="btn" onclick={blank}>New</button>
@@ -104,15 +94,6 @@
     display: flex;
     align-items: center;
     gap: 8px;
-  }
-  .moves {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12.5px;
-    color: var(--text-3);
-    margin-right: 8px;
-    cursor: pointer;
   }
   .rec .dot {
     width: 9px;

@@ -28,6 +28,8 @@ export interface ClickerConfig {
   jitterMs: number;
   position: ClickPosition;
   stopAfter: StopAfter;
+  /** Double-click each time. */
+  double: boolean;
 }
 
 export type HotkeyMode = "toggle" | "hold";
@@ -65,6 +67,7 @@ export type Condition =
   | { kind: "textAppears"; text: string; digitsAfter?: number | null }
   | { kind: "textGone"; text: string; digitsAfter?: number | null }
   | { kind: "number"; op: Cmp; value: number }
+  | { kind: "colorAppears"; rgb: [number, number, number]; tolerance: number }
   | { kind: "colorAt"; dx: number; dy: number; rgb: [number, number, number]; tolerance: number }
   | { kind: "imageAppears"; template: Template; threshold: number }
   | { kind: "changes" };
@@ -164,7 +167,9 @@ export interface Settings {
   panicHotkey: string | null;
   recordHotkey: string | null;
   record: RecordOptions;
+  /** Red click-through outline around every monitor while recording. */
   recordingOverlay: boolean;
+  startupMacro: string | null;
   closeToTray: boolean;
   webhook: WebhookSettings;
   watches: WatchRule[];
@@ -194,6 +199,11 @@ export const api = {
   cancelPick: () => invoke<void>("cancel_pick"),
   clickerToggle: () => invoke<boolean>("clicker_toggle"),
   clickerStatus: () => invoke<ClickerStatus>("clicker_status"),
+  startupEnabled: () => invoke<boolean>("startup_enabled"),
+  setStartupEnabled: (on: boolean) => invoke<void>("set_startup_enabled", { on }),
+  setStartupMacro: (id: string | null) => invoke<void>("set_startup_macro", { id }),
+  /** Eyedropper: next click on screen returns that pixel's colour. */
+  pickColor: () => invoke<[number, number, number] | null>("pick_color"),
   setCloseToTray: (on: boolean) => invoke<void>("set_close_to_tray", { on }),
   quitApp: () => invoke<void>("quit_app"),
   setRecordingOverlay: (on: boolean) => invoke<void>("set_recording_overlay", { on }),
@@ -211,10 +221,12 @@ export const api = {
   recordingStop: () => invoke<void>("recording_stop"),
   pickRegion: () => invoke<Region | null>("pick_region"),
   captureTemplate: () => invoke<Template | null>("capture_template"),
-  viewerCheck: (region: Region, condition: Condition) => invoke<ViewerCheck>("viewer_check", { region, condition }),
+  /** `id` identifies one live viewer; several can run at once. */
+  viewerCheck: (id: string, region: Region, condition: Condition) =>
+    invoke<ViewerCheck>("viewer_check", { id, region, condition }),
   /** Raw bytes: u32 width, u32 height (little-endian), then RGBA pixels. */
-  viewerFrame: (maxWidth: number) => invoke<ArrayBuffer>("viewer_frame", { maxWidth }),
-  viewerStop: () => invoke<void>("viewer_stop"),
+  viewerFrame: (id: string, maxWidth: number) => invoke<ArrayBuffer>("viewer_frame", { id, maxWidth }),
+  viewerStop: (id: string) => invoke<void>("viewer_stop", { id }),
   saveWatches: (watches: WatchRule[]) => invoke<WatchRule[]>("save_watches", { watches }),
   setWebhook: (webhook: WebhookSettings) => invoke<void>("set_webhook", { webhook }),
   testWebhook: (webhook: WebhookSettings) => invoke<void>("test_webhook", { webhook }),

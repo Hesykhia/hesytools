@@ -94,8 +94,10 @@ pub struct Settings {
     /// Starts/stops macro recording from anywhere.
     pub record_hotkey: Option<Hotkey>,
     pub record: RecordOptions,
-    /// Show the small always-on-top panel listing steps while recording.
+    /// Draw a red, click-through outline around every monitor while recording.
     pub recording_overlay: bool,
+    /// Macro to play (after a few seconds) whenever hesytools starts.
+    pub startup_macro: Option<String>,
     /// Closing the window hides it to the tray (hotkeys and watches keep
     /// working) instead of quitting.
     pub close_to_tray: bool,
@@ -113,6 +115,7 @@ impl Default for Settings {
             record_hotkey: Key::from_name("F9").map(Hotkey::key),
             record: RecordOptions::default(),
             recording_overlay: true,
+            startup_macro: None,
             close_to_tray: true,
             webhook: WebhookSettings::default(),
             watches: Vec::new(),

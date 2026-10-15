@@ -21,7 +21,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton as TrayButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 
 const HK_CLICKER: &str = "clicker";
 const HK_PANIC: &str = "panic";
@@ -45,11 +45,12 @@ struct App {
     recorder: Mutex<Option<Recorder>>,
     /// Our main window, so the recorder can ignore clicks on hesytools itself.
     main_hwnd: AtomicIsize,
-    /// The recording overlay window, ignored by the recorder the same way.
-    hud_hwnd: Arc<AtomicIsize>,
-    /// The live viewer's watcher, kept between polls so OCR is skipped while
-    /// the region is unchanged. Keyed by its region+condition.
-    viewer: Mutex<Option<(String, Watcher)>>,
+    /// Red border around every monitor while recording.
+    outline: Mutex<Option<engine::outline::ScreenOutline>>,
+    /// Live viewers by id, each with its watcher kept between polls so OCR is
+    /// skipped while the region is unchanged (plus the region+condition it
+    /// was built for).
+    viewers: Mutex<std::collections::HashMap<String, (String, Watcher)>>,
     watches: WatchRunner,
 }
 
@@ -154,7 +155,6 @@ fn start_recording(app: &AppHandle, a: &Arc<App>) -> Result<(), String> {
         (s.record, s.record_hotkey)
     };
     let own = a.main_hwnd.load(Ordering::Relaxed);
-    let hud = a.hud_hwnd.clone();
     let progress_app = app.clone();
     let on_progress = move |steps: &[Step]| {
         let _ = progress_app.emit("recording-progress", steps);
@@ -173,73 +173,33 @@ fn start_recording(app: &AppHandle, a: &Arc<App>) -> Result<(), String> {
                 return false;
             }
         }
-        // Nothing done inside hesytools' own windows gets recorded.
-        let hud = hud.load(Ordering::Relaxed);
+        // Nothing done inside hesytools' own window gets recorded. (The
+        // outline is click-through, so clicks over it reach the app below.)
         let target = match ev.kind {
             InputKind::Key { .. } => input::foreground_window(),
             _ => input::root_window_at(ev.x, ev.y),
         };
-        target != own && (hud == 0 || target != hud)
+        target != own
         },
         on_progress,
     ));
     drop(slot);
     let _ = app.emit("recording-state", true);
     if a.settings.lock().recording_overlay {
-        open_recording_overlay(app, a);
+        show_outline(a);
     }
     Ok(())
 }
 
-const HUD_W: f64 = 320.0;
-const HUD_H: f64 = 400.0;
-
-/// A small always-on-top panel in the top-right corner of the main monitor
-/// that lists steps as they're recorded. It never takes focus from the game.
-/// Must not be called from the main thread (window creation would deadlock).
-fn open_recording_overlay(app: &AppHandle, a: &App) {
-    if let Some(w) = app.get_webview_window("hud") {
-        let _ = w.show();
-        return;
-    }
-    let mut builder = WebviewWindowBuilder::new(app, "hud", WebviewUrl::App("hud".into()))
-        .title("hesytools \u{b7} recording")
-        .inner_size(HUD_W, HUD_H)
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        .focused(false);
-    if let Ok(Some(m)) = app.primary_monitor() {
-        let scale = m.scale_factor();
-        let (pos, size) = (m.position(), m.size());
-        let x = (pos.x as f64 + size.width as f64) / scale - HUD_W - 18.0;
-        let y = pos.y as f64 / scale + 18.0;
-        builder = builder.position(x, y);
-    }
-    match builder.build() {
-        Ok(w) => {
-            if let Ok(h) = w.hwnd() {
-                a.hud_hwnd.store(h.0 as isize, Ordering::Relaxed);
-            }
-        }
-        Err(e) => eprintln!("recording overlay: {e}"),
-    }
-}
-
-fn close_recording_overlay(app: &AppHandle, a: &App) {
-    if let Some(w) = app.get_webview_window("hud") {
-        let _ = w.close();
-    }
-    a.hud_hwnd.store(0, Ordering::Relaxed);
+fn show_outline(a: &App) {
+    let hint = a.settings.lock().record_hotkey.map(|h| format!("  \u{b7}  press {h} to stop")).unwrap_or_default();
+    *a.outline.lock() = Some(engine::outline::ScreenOutline::show(&format!("REC{hint}")));
 }
 
 fn stop_recording(app: &AppHandle, a: &App) {
     let Some(rec) = a.recorder.lock().take() else { return };
     let steps: Vec<Step> = rec.stop();
-    close_recording_overlay(app, a);
+    *a.outline.lock() = None;
     let _ = app.emit("recording-state", false);
     let _ = app.emit("recording-finished", steps);
 }
@@ -410,7 +370,7 @@ fn describe_watch(rule: &WatchRule) -> String {
             };
             format!("The number reached {op} {value}")
         }
-        Condition::ColorAt { .. } => "The colour matched".into(),
+        Condition::ColorAt { .. } | Condition::ColorAppears { .. } => "The colour appeared".into(),
         Condition::ImageAppears { .. } => "The image appeared".into(),
         Condition::Changes => "The area changed".into(),
     };
@@ -607,8 +567,6 @@ fn activity_status(a: AppState) -> ActivityStatus {
     ActivityStatus { playing: a.playing_id(), recording: a.recorder.lock().is_some() }
 }
 
-// Async so they run off the main thread: creating the overlay window from a
-// synchronous command deadlocks on Windows.
 #[tauri::command]
 async fn recording_start(app: AppHandle, a: AppState<'_>) -> Result<(), String> {
     start_recording(&app, &a)
@@ -681,15 +639,15 @@ struct ViewerCheck {
 /// One live-viewer tick: capture + evaluate. OCR only re-runs when the
 /// region's pixels changed since the previous tick.
 #[tauri::command]
-async fn viewer_check(a: AppState<'_>, region: Region, condition: Condition) -> Result<ViewerCheck, String> {
+async fn viewer_check(a: AppState<'_>, id: String, region: Region, condition: Condition) -> Result<ViewerCheck, String> {
     let key = serde_json::to_string(&(region, &condition)).unwrap_or_default();
     let a = a.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let mut slot = a.viewer.lock();
-        if slot.as_ref().is_none_or(|(k, _)| *k != key) {
-            *slot = Some((key, Watcher::new(region, condition)?));
+        let mut viewers = a.viewers.lock();
+        if viewers.get(&id).is_none_or(|(k, _)| *k != key) {
+            viewers.insert(id.clone(), (key, Watcher::new(region, condition)?));
         }
-        let (_, w) = slot.as_mut().expect("just set");
+        let (_, w) = viewers.get_mut(&id).expect("just set");
         let check = w.check()?;
         let (width, height) = w.frame.as_ref().map_or((0, 0), |f| (f.w, f.h));
         Ok(ViewerCheck { check, width, height })
@@ -701,9 +659,9 @@ async fn viewer_check(a: AppState<'_>, region: Region, condition: Condition) -> 
 /// The viewer's latest capture as raw bytes: u32 width, u32 height (LE),
 /// then RGBA pixels, scaled down to at most `max_width` wide.
 #[tauri::command]
-fn viewer_frame(a: AppState, max_width: u32) -> tauri::ipc::Response {
-    let slot = a.viewer.lock();
-    let Some(frame) = slot.as_ref().and_then(|(_, w)| w.frame.as_ref()) else {
+fn viewer_frame(a: AppState, id: String, max_width: u32) -> tauri::ipc::Response {
+    let viewers = a.viewers.lock();
+    let Some(frame) = viewers.get(&id).and_then(|(_, w)| w.frame.as_ref()) else {
         return tauri::ipc::Response::new(Vec::new());
     };
     let t = frame.thumbnail(max_width.clamp(16, 1600));
@@ -717,8 +675,8 @@ fn viewer_frame(a: AppState, max_width: u32) -> tauri::ipc::Response {
 }
 
 #[tauri::command]
-fn viewer_stop(a: AppState) {
-    *a.viewer.lock() = None;
+fn viewer_stop(a: AppState, id: String) {
+    a.viewers.lock().remove(&id);
 }
 
 #[tauri::command]
@@ -822,6 +780,34 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 }
 
 #[tauri::command]
+fn startup_enabled() -> bool {
+    engine::startup::is_enabled()
+}
+
+#[tauri::command]
+fn set_startup_enabled(on: bool) -> Result<(), String> {
+    engine::startup::set_enabled(on)
+}
+
+#[tauri::command]
+fn set_startup_macro(a: AppState, id: Option<String>) -> Result<(), String> {
+    a.update(|s| s.startup_macro = id).map(|_| ())
+}
+
+/// Eyedropper: the next click anywhere on screen returns that pixel's colour
+/// (the click itself is swallowed). Esc cancels.
+#[tauri::command]
+async fn pick_color() -> Result<Option<[u8; 3]>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let Some((x, y)) = hooks::pick_point() else { return Ok(None) };
+        let f = engine::capture::capture(Region { x, y, w: 1, h: 1 })?;
+        Ok(f.pixel(0, 0))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn set_close_to_tray(a: AppState, on: bool) -> Result<(), String> {
     a.update(|s| s.close_to_tray = on).map(|_| ())
 }
@@ -863,14 +849,33 @@ pub fn run() {
                 playing: Mutex::new(None),
                 recorder: Mutex::new(None),
                 main_hwnd: AtomicIsize::new(main_hwnd),
-                hud_hwnd: Arc::new(AtomicIsize::new(0)),
-                viewer: Mutex::new(None),
+                outline: Mutex::new(None),
+                viewers: Mutex::new(Default::default()),
                 watches: WatchRunner::default(),
             });
             apply_hotkeys(&a);
             sync_watches(app.handle(), &a);
             app.manage(a);
             build_tray(app)?;
+            if engine::startup::launched_at_startup() {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.hide();
+                }
+            }
+            let startup_macro = app.state::<Arc<App>>().settings.lock().startup_macro.clone();
+            if let Some(id) = startup_macro {
+                // A short grace period so a startup macro never fires the
+                // instant you sign in.
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_secs(5));
+                    if let Some(a) = handle.try_state::<Arc<App>>() {
+                        if let Err(e) = play_macro_by_id(&handle, &a, &id) {
+                            let _ = handle.emit("toast", format!("Startup macro: {e}"));
+                        }
+                    }
+                });
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -913,6 +918,10 @@ pub fn run() {
             recording_stop,
             set_recording_overlay,
             set_close_to_tray,
+            startup_enabled,
+            set_startup_enabled,
+            set_startup_macro,
+            pick_color,
             quit_app,
             screen_layout,
             pick_region,

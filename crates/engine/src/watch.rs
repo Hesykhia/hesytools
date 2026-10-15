@@ -47,6 +47,9 @@ pub enum Condition {
     /// showing "WAVE 12 · 1.25e+25" still matches `>= 1e25`.
     /// Understands 1,234 · 1.25e+25 · 12.5K / 3M / 1.2B / 4T.
     Number { op: Cmp, value: f64 },
+    /// Some pixel anywhere in the region is within `tolerance` of `rgb`
+    /// (e.g. a red health bar or a green "ready" light appears).
+    ColorAppears { rgb: [u8; 3], tolerance: u8 },
     /// The pixel at (dx, dy) inside the region is within `tolerance` of `rgb`.
     #[serde(rename_all = "camelCase")]
     ColorAt { dx: u32, dy: u32, rgb: [u8; 3], tolerance: u8 },
@@ -115,10 +118,13 @@ impl Watcher {
 
         let check = match &self.condition {
             Condition::Changes => Check { matched: fp != baseline, ..empty(capture_ms) },
+            Condition::ColorAppears { rgb, tolerance } => {
+                let hit = find_color(&frame, *rgb, *tolerance);
+                let found = hit.map(|(x, y)| imagematch::Found { x, y, score: 1.0 });
+                Check { matched: hit.is_some(), found, ..empty(capture_ms) }
+            }
             Condition::ColorAt { dx, dy, rgb, tolerance } => {
-                let matched = frame.pixel(*dx, *dy).is_some_and(|p| {
-                    p.iter().zip(rgb).all(|(a, b)| (*a as i16 - *b as i16).unsigned_abs() <= *tolerance as u16)
-                });
+                let matched = frame.pixel(*dx, *dy).is_some_and(|p| close(p, *rgb, *tolerance));
                 Check { matched, ..empty(capture_ms) }
             }
             Condition::ImageAppears { threshold, .. } => {
@@ -162,6 +168,18 @@ impl Watcher {
         self.last = Some(check.clone());
         Ok(check)
     }
+}
+
+fn close(p: [u8; 3], rgb: [u8; 3], tolerance: u8) -> bool {
+    p.iter().zip(rgb).all(|(a, b)| a.abs_diff(b) <= tolerance)
+}
+
+/// First pixel (row by row) within `tolerance` of `rgb`.
+fn find_color(f: &Frame, rgb: [u8; 3], tolerance: u8) -> Option<(u32, u32)> {
+    f.bgra.chunks_exact(4).position(|px| close([px[2], px[1], px[0]], rgb, tolerance)).map(|i| {
+        let i = i as u32;
+        (i % f.w, i / f.w)
+    })
 }
 
 fn empty(capture_ms: f64) -> Check {
@@ -341,6 +359,16 @@ mod tests {
         assert!(!contains_any("Loading", "ready, done", None));
         assert!(compare(1.25e25, Cmp::Equal, 1.25e25));
         assert!(compare(10.0, Cmp::AtLeast, 10.0));
+    }
+
+    #[test]
+    fn colour_anywhere() {
+        let mut bgra = [10u8, 10, 10, 255].repeat(20 * 10);
+        let i = ((4 * 20 + 7) * 4) as usize; // pixel (7, 4) turns red-ish
+        bgra[i..i + 3].copy_from_slice(&[20, 30, 240]);
+        let f = Frame { w: 20, h: 10, bgra };
+        assert_eq!(find_color(&f, [255, 0, 0], 40), Some((7, 4)));
+        assert_eq!(find_color(&f, [255, 0, 0], 10), None);
     }
 
     #[test]

@@ -15,6 +15,7 @@ const settings: Settings = {
     jitterMs: 0,
     position: { kind: "current" },
     stopAfter: { kind: "never" },
+    double: false,
   },
   clickerHotkey: "F6",
   clickerMode: "toggle",
@@ -22,6 +23,7 @@ const settings: Settings = {
   recordHotkey: "F9",
   record: { recordMoves: false, minWaitMs: 1 },
   recordingOverlay: true,
+  startupMacro: null,
   closeToTray: true,
   webhook: { url: "", mentionUserId: "", notifyClickerFinished: true, notifyMacroFinished: true },
   watches: [
@@ -157,7 +159,7 @@ function clickerStatus() {
 
 /**
  * `?scene=` jumps straight to a state, for screenshots:
- * editor:<id>, playing:<id> (editor with live playback), recording, watch[:n].
+ * editor:<id>, playing:<id> (editor with live playback), recording, watch[:n], settings.
  */
 async function applyScene() {
   const scene = new URLSearchParams(location.search).get("scene");
@@ -175,6 +177,13 @@ async function applyScene() {
     (document.querySelector('[data-value="watch"]') as HTMLButtonElement | null)?.click();
     // watch:<n> selects the nth rule
     if (id) setTimeout(() => (document.querySelectorAll<HTMLButtonElement>(".rule")[Number(id)] ?? null)?.click(), 300);
+  }
+  if (kind === "clicker") {
+    // clicker:<n> opens the nth chip's panel in the Quick Clicker sentence
+    setTimeout(() => (document.querySelectorAll<HTMLButtonElement>(".panel .sentence .chip")[Number(id ?? 0)] ?? null)?.click(), 200);
+  }
+  if (kind === "settings") {
+    (document.querySelector('[aria-label="Settings"]') as HTMLButtonElement | null)?.click();
   }
   if (kind === "recording") {
     recording = true;
@@ -288,6 +297,14 @@ export function install() {
         case "set_recording_overlay":
           settings.recordingOverlay = a.on;
           return;
+        case "startup_enabled":
+          return false;
+        case "set_startup_enabled":
+        case "set_startup_macro":
+          return;
+        case "pick_color":
+          await new Promise((r) => setTimeout(r, 600));
+          return [255, 92, 112];
         case "screen_layout":
           return [
             { x: -1920, y: 0, w: 1920, h: 1080 },

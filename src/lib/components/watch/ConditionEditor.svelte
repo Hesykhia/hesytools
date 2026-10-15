@@ -4,6 +4,7 @@
   import InlineNumber from "../ui/InlineNumber.svelte";
   import Popover from "../ui/Popover.svelte";
   import TemplateThumb from "./TemplateThumb.svelte";
+  import ColorPick from "./ColorPick.svelte";
 
   let { condition = $bindable() }: { condition: Condition } = $props();
 
@@ -11,7 +12,8 @@
     { kind: "textAppears", label: "text appears", hint: "e.g. “Ready” shows up" },
     { kind: "textGone", label: "text disappears", hint: "e.g. “Loading” goes away" },
     { kind: "number", label: "a number reaches", hint: "coins ≥ 1e25, 12.5K, 3M…" },
-    { kind: "colorAt", label: "a colour shows", hint: "a pixel turns a colour" },
+    { kind: "colorAppears", label: "a colour appears", hint: "that colour shows up anywhere in the area" },
+    { kind: "colorAt", label: "one pixel turns a colour", hint: "a single exact spot changes colour" },
     { kind: "imageAppears", label: "an image appears", hint: "a button or icon shows up" },
     { kind: "changes", label: "anything changes", hint: "any pixel in the area" },
   ];
@@ -48,8 +50,10 @@
         : kind === "number"
           ? { kind, op: ">=", value: 100 }
           : kind === "colorAt"
-            ? { kind, dx: 0, dy: 0, rgb: [255, 0, 0], tolerance: 30 }
-            : { kind };
+            ? { kind, dx: 0, dy: 0, rgb: "rgb" in condition ? condition.rgb : [255, 0, 0], tolerance: 30 }
+            : kind === "colorAppears"
+              ? { kind, rgb: "rgb" in condition ? condition.rgb : [255, 0, 0], tolerance: 30 }
+              : { kind: "changes" };
   }
 
   const OPS: Cmp[] = [">=", "<=", "=="];
@@ -73,7 +77,6 @@
     if (!first || n == null || n === 0) return "";
     return `${first}${"0".repeat(n)}–${first}${"9".repeat(n)}`;
   }
-  const hex = (rgb: number[]) => "#" + rgb.map((c) => c.toString(16).padStart(2, "0")).join("");
 </script>
 
 <span class="cond">
@@ -119,12 +122,15 @@
     {@const c = condition}
     <button class="chip soft" onclick={() => (c.op = OPS[(OPS.indexOf(c.op) + 1) % OPS.length])}>{OP_LABEL[c.op]}</button>
     <InlineNumber value={c.value} min={-1e308} max={1e308} onchange={(v) => (c.value = v)} />
-  {:else if condition.kind === "colorAt"}
+  {:else if condition.kind === "colorAppears" || condition.kind === "colorAt"}
     {@const c = condition}
-    <span class="swatch" style:background={hex(c.rgb)} title={hex(c.rgb)}></span>
-    <span class="soft">within</span>
+    <ColorPick bind:rgb={c.rgb} />
+    <span class="soft">± </span>
     <InlineNumber value={c.tolerance} max={255} onchange={(v) => (c.tolerance = Math.round(v))} />
-    <span class="soft">at pixel {c.dx}, {c.dy}</span>
+    <span class="soft" title="How close the colour has to be (0 = exact)">tolerance</span>
+    {#if c.kind === "colorAt"}
+      <span class="soft">at pixel {c.dx}, {c.dy} (click the live view to move it)</span>
+    {/if}
   {:else if condition.kind === "imageAppears"}
     {@const c = condition}
     <TemplateThumb template={c.template} />
@@ -179,14 +185,6 @@
     color: var(--text-3);
     padding: 8px 10px 2px;
     line-height: 1.45;
-  }
-  .swatch {
-    width: 20px;
-    height: 20px;
-    border-radius: 6px;
-    box-shadow:
-      inset 0 0 0 1px rgba(255, 255, 255, 0.25),
-      0 0 10px rgba(0, 0, 0, 0.4);
   }
   .item {
     display: block;

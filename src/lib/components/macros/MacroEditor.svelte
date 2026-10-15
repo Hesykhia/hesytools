@@ -2,7 +2,7 @@
   import { onDestroy } from "svelte";
   import { api, errorText, type Macro, type Step } from "$lib/api";
   import { activity, removeMacro, upsertMacro } from "$lib/activity.svelte";
-  import { formatMs, durationMs, actionCount } from "$lib/steps";
+  import { formatMs, durationMs, actionCount, pathCount, makeMovesInstant } from "$lib/steps";
   import { toast } from "$lib/toast.svelte";
   import HotkeyButton from "../HotkeyButton.svelte";
   import InlineNumber from "../ui/InlineNumber.svelte";
@@ -179,6 +179,16 @@
         <ClickMap steps={m.steps} active={playing ? activity.step : -1} numbered />
       </div>
     </section>
+  {/if}
+
+  {#if pathCount(m.steps) > 0}
+    <div class="paths">
+      <span>
+        This macro replays <b>{pathCount(m.steps)}</b> recorded mouse {pathCount(m.steps) === 1 ? "movement" : "movements"} at their
+        original speed.
+      </span>
+      <button class="btn small" onclick={() => makeMovesInstant(m.steps)}>Make all mouse moves instant</button>
+    </div>
   {/if}
 
   <section class="steps">
@@ -415,6 +425,24 @@
 
   .steps {
     padding: 0 2px;
+  }
+  .paths {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 12px 10px 16px;
+    border-radius: 14px;
+    font-size: 13px;
+    color: var(--text-2);
+    background: rgba(91, 140, 255, 0.07);
+    border: 1px solid rgba(91, 140, 255, 0.3);
+  }
+  .btn.small {
+    height: 30px;
+    padding: 0 14px;
+    font-size: 12.5px;
+    flex: none;
   }
   .map {
     padding: 14px 16px;

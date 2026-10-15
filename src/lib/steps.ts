@@ -173,3 +173,20 @@ function shortText(s: Step): string {
       return "";
   }
 }
+
+/** How many recorded mouse-movement paths (including inside loops). */
+export function pathCount(steps: Step[]): number {
+  return steps.reduce((n, s) => n + (s.type === "path" ? 1 : s.type === "repeat" ? pathCount(s.steps) : 0), 0);
+}
+
+/** Replace every recorded path with an instant jump to where it ended. */
+export function makeMovesInstant(steps: Step[]): void {
+  steps.forEach((s, i) => {
+    if (s.type === "path") {
+      const end = s.points.at(-1) ?? { x: 0, y: 0 };
+      steps[i] = { type: "move", x: end.x, y: end.y };
+    } else if (s.type === "repeat") {
+      makeMovesInstant(s.steps);
+    }
+  });
+}

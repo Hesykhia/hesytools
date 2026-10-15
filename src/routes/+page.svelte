@@ -12,10 +12,10 @@
   import RecordingCard from "$lib/components/macros/RecordingCard.svelte";
   import { activity, initActivity } from "$lib/activity.svelte";
   import WatchPage from "$lib/components/watch/WatchPage.svelte";
-  import SettingsSheet from "$lib/components/SettingsSheet.svelte";
+  import SettingsPage from "$lib/components/SettingsPage.svelte";
 
-  type Page = "macros" | "watch";
-  const ORDER: Page[] = ["macros", "watch"];
+  type Page = "macros" | "watch" | "settings";
+  const ORDER: Page[] = ["macros", "watch", "settings"];
 
   let page = $state<Page>("macros");
   let direction = $state(1);
@@ -23,7 +23,6 @@
   let info = $state<SystemInfo | null>(null);
   let loadError = $state("");
   let running = $state(false);
-  let settingsOpen = $state(false);
   /** Macro open in the editor, or null for the library. */
   let editing = $state<string | null>(null);
   let editingMacro = $derived(editing ? activity.macros.find((m) => m.id === editing) : undefined);
@@ -75,14 +74,17 @@
           { value: "watch", label: "Screen Watch" },
         ]}
       />
-      <button class="gear" aria-label="Settings" onclick={() => (settingsOpen = true)}>
+
+    </div>
+    {/if}
+    {#snippet right()}
+      <button class="gear" class:on={page === "settings"} aria-label="Settings" title="Settings" onclick={() => go(page === "settings" ? "macros" : "settings")}>
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
       </button>
-    </div>
-    {/if}
+    {/snippet}
   </TitleBar>
 
   <main>
@@ -94,11 +96,17 @@
           {#if page === "macros" && editingMacro}
             <MacroEditor source={editingMacro} onback={() => openMacro(null)} />
           {:else if page === "macros"}
-            {#if activity.recording}<RecordingCard />{/if}
-            <QuickClicker bind:settings bind:running />
-            <MacroLibrary bind:settings onopen={openMacro} />
-          {:else}
+            <div class="macros-layout">
+              <div class="main-col">
+                {#if activity.recording}<RecordingCard />{/if}
+                <MacroLibrary bind:settings onopen={openMacro} />
+              </div>
+              <aside><QuickClicker bind:settings bind:running /></aside>
+            </div>
+          {:else if page === "watch"}
             <WatchPage bind:settings />
+          {:else}
+            <SettingsPage bind:settings {info} />
           {/if}
           {#if settings.panicHotkey}
             <div class="panic">
@@ -111,10 +119,6 @@
   </main>
 
 </div>
-
-{#if settings}
-  <SettingsSheet bind:open={settingsOpen} bind:settings {info} />
-{/if}
 
 <div class="toasts">
   {#each toasts as t (t.id)}
@@ -148,6 +152,10 @@
       color var(--duration-quick) var(--ease-smooth-out),
       transform 400ms var(--ease-smooth-out);
   }
+  .gear.on {
+    color: var(--violet-2);
+    border-color: rgba(139, 108, 255, 0.5);
+  }
   .gear:hover {
     color: var(--text);
     transform: rotate(45deg);
@@ -157,8 +165,32 @@
     overflow-y: auto;
     padding: 8px 28px 22px;
   }
+  .macros-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 20px;
+    align-items: start;
+  }
+  .main-col {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-width: 0;
+  }
+  aside {
+    position: sticky;
+    top: 0;
+  }
+  @media (max-width: 960px) {
+    .macros-layout {
+      grid-template-columns: 1fr;
+    }
+    aside {
+      position: static;
+    }
+  }
   .page {
-    max-width: 940px;
+    max-width: 1500px;
     margin: 0 auto;
     display: flex;
     flex-direction: column;

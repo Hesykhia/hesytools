@@ -18,6 +18,7 @@
   } = $props();
 
   const TICK_MS = 300;
+  const id = Math.random().toString(36).slice(2);
   const MAX_W = 560;
 
   let canvas: HTMLCanvasElement | undefined = $state();
@@ -40,11 +41,11 @@
     if (busy || !region || document.hidden) return;
     busy = true;
     try {
-      const c = await api.viewerCheck($state.snapshot(region), $state.snapshot(condition));
+      const c = await api.viewerCheck(id, $state.snapshot(region), $state.snapshot(condition));
       check = c;
       error = "";
       stats = { checks: stats.checks + 1, ocrRuns: stats.ocrRuns + (c.ocrRan ? 1 : 0) };
-      draw(await api.viewerFrame(MAX_W));
+      draw(await api.viewerFrame(id, MAX_W));
     } catch (e) {
       error = errorText(e);
     } finally {
@@ -75,7 +76,7 @@
   });
   onDestroy(() => {
     clearInterval(timer);
-    api.viewerStop().catch(() => {});
+    api.viewerStop(id).catch(() => {});
   });
 
   function pick(e: MouseEvent) {
@@ -99,11 +100,17 @@
       : null,
   );
 
-  let marker = $derived(
-    condition.kind === "colorAt" && region
-      ? { left: `${((condition.dx + 0.5) / region.w) * 100}%`, top: `${((condition.dy + 0.5) / region.h) * 100}%` }
-      : null,
-  );
+  // The watched pixel (colorAt) or where the colour was found (colorAppears).
+  let marker = $derived.by(() => {
+    if (!region) return null;
+    const at =
+      condition.kind === "colorAt"
+        ? { x: condition.dx, y: condition.dy }
+        : condition.kind === "colorAppears" && check?.found
+          ? check.found
+          : null;
+    return at ? { left: `${((at.x + 0.5) / region.w) * 100}%`, top: `${((at.y + 0.5) / region.h) * 100}%` } : null;
+  });
 
   const fmtNum = (n: number) => (Math.abs(n) >= 1e9 ? n.toExponential(3).replace(/\.?0+e/, "e") : n.toLocaleString());
 </script>
@@ -152,6 +159,12 @@
                 none found
               {/each}
             </b>
+          </div>
+        {/if}
+        {#if condition.kind === "colorAppears"}
+          <div class="line">
+            <span>Colour</span>
+            <b>{check?.found ? `found at ${check.found.x}, ${check.found.y}` : check ? "not in the area" : "…"}</b>
           </div>
         {/if}
         {#if condition.kind === "imageAppears"}

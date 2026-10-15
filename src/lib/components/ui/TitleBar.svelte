@@ -2,7 +2,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import type { Snippet } from "svelte";
 
-  let { children }: { children?: Snippet } = $props();
+  let { children, right }: { children?: Snippet; right?: Snippet } = $props();
   const win = getCurrentWindow();
 </script>
 
@@ -15,6 +15,7 @@
   <div class="center">{@render children?.()}</div>
 
   <div class="controls">
+    {#if right}<div class="right">{@render right()}</div>{/if}
     <button aria-label="Minimize" onclick={() => win.minimize()}>
       <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 5h8" stroke="currentColor" stroke-width="1.2" /></svg>
     </button>
@@ -61,7 +62,15 @@
     display: flex;
     gap: 2px;
   }
-  .controls button {
+  .right {
+    display: flex;
+    align-items: center;
+    margin-right: 10px;
+  }
+  .controls {
+    align-items: center;
+  }
+  .controls > button {
     width: 38px;
     height: 30px;
     border-radius: 8px;
@@ -72,7 +81,7 @@
       background var(--duration-quick) var(--ease-smooth-out),
       color var(--duration-quick) var(--ease-smooth-out);
   }
-  .controls button:hover {
+  .controls > button:hover {
     background: var(--glass-hover);
     color: var(--text);
   }

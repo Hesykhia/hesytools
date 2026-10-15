@@ -167,13 +167,23 @@
               <span class="soft">for</span> <InlineNumber value={s.holdMs} onchange={(v) => (s.holdMs = v)} /> <span class="soft">ms</span>
             {/if}
           {:else if s.type === "move"}
-            <span>Move mouse to</span>
+            <span>Jump mouse to</span>
             <InlineNumber value={s.x} min={-1e5} onchange={(v) => (s.x = Math.round(v))} />
             <InlineNumber value={s.y} min={-1e5} onchange={(v) => (s.y = Math.round(v))} />
             <button class="mini" class:busy={picking === i} onclick={() => pickInto(i)}>{picking === i ? "click anywhere…" : "pick"}</button>
           {:else if s.type === "path"}
-            <span>Follow recorded mouse movement</span>
-            <span class="soft">· {s.points.length} points · {formatMs(s.points.at(-1)?.t ?? 0)}</span>
+            {@const end = s.points.at(-1)}
+            <span>Move mouse to</span>
+            {#if end}
+              <InlineNumber value={end.x} min={-1e5} onchange={(v) => (end.x = Math.round(v))} />
+              <InlineNumber value={end.y} min={-1e5} onchange={(v) => (end.y = Math.round(v))} />
+            {/if}
+            <span class="soft">along the recorded path · {formatMs(end?.t ?? 0)}</span>
+            <button
+              class="mini accent"
+              title="Skip the movement and jump straight to the end point"
+              onclick={() => (steps[i] = { type: "move", x: end?.x ?? 0, y: end?.y ?? 0 })}>make instant</button
+            >
           {:else if s.type === "scroll"}
             <span>Scroll</span>
             <button class="chip" onclick={() => (s.amount = -s.amount)}>{s.amount > 0 ? "up" : "down"}</button>
@@ -368,6 +378,10 @@
   .mini:hover {
     color: var(--text);
     border-color: var(--stroke-strong);
+  }
+  .mini.accent {
+    color: var(--violet-2);
+    border-color: rgba(139, 108, 255, 0.45);
   }
   .mini.busy {
     color: var(--violet-2);

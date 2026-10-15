@@ -1,4 +1,6 @@
 <script lang="ts">
+  // Screen Watch on one page: every watch is shown in full (where / what /
+  // then, with its live view beside it). Nothing to click into.
   import { onDestroy, onMount } from "svelte";
   import { api, errorText, onWatchHit, onWatchStatus, type Settings, type WatchRule, type WatchStatus } from "$lib/api";
   import { activity } from "$lib/activity.svelte";
@@ -9,15 +11,11 @@
   import ConditionEditor from "./ConditionEditor.svelte";
   import RegionChip from "./RegionChip.svelte";
   import WatchViewer from "./WatchViewer.svelte";
-  import WatchPreview from "../WatchPreview.svelte";
 
   let { settings = $bindable() }: { settings: Settings } = $props();
 
   // svelte-ignore state_referenced_locally
   let rules = $state<WatchRule[]>($state.snapshot(settings.watches));
-  // svelte-ignore state_referenced_locally
-  let selectedId = $state<string | null>(settings.watches[0]?.id ?? null);
-  let selected = $derived(rules.find((r) => r.id === selectedId));
   let status = $state<Record<string, WatchStatus>>({});
   /** Watches that just triggered (glow for a moment). */
   let flash = $state<Record<string, boolean>>({});
@@ -35,10 +33,7 @@
   async function save() {
     try {
       const saved = await api.saveWatches($state.snapshot(rules));
-      // New rules get their ids from the backend.
-      const firstNew = rules.findIndex((r) => !r.id);
       rules = saved;
-      if (firstNew >= 0) selectedId = saved[firstNew]?.id ?? selectedId;
       lastSaved = JSON.stringify(saved);
       settings.watches = saved;
     } catch (e) {
@@ -70,7 +65,7 @@
       name: `Watch ${rules.length + 1}`,
       enabled: false,
       region: { x: 0, y: 0, w: 0, h: 0 },
-      condition: { kind: "textAppears", text: "" },
+      condition: { kind: "textAppears", text: "", digitsAfter: null },
       pollMs: 250,
       action: { kind: "notify" },
       discord: false,
@@ -80,216 +75,244 @@
     await save();
   }
 
-  function remove(id: string) {
-    rules = rules.filter((r) => r.id !== id);
-    selectedId = rules[0]?.id ?? null;
-  }
-
-  function summary(r: WatchRule): string {
-    const c = r.condition;
-    const when =
-      c.kind === "textAppears"
-        ? `“${c.text || "…"}”${c.digitsAfter ? ` +${c.digitsAfter}` : ""} appears`
-        : c.kind === "textGone"
-          ? `“${c.text || "…"}” disappears`
-          : c.kind === "number"
-            ? `number ${c.op} ${c.value}`
-            : c.kind === "colorAt"
-              ? "a colour shows"
-              : c.kind === "imageAppears"
-                ? "an image appears"
-                : "anything changes";
-    const then =
-      r.action.kind === "runMacro"
-        ? `run ${activity.macros.find((m) => m.id === (r.action as { macroId: string }).macroId)?.name ?? "a macro"}`
-        : r.action.kind === "stopEverything"
-          ? "stop everything"
-          : "notify";
-    return `When ${when} → ${then}`;
-  }
-
-  let actionLabel = $derived.by(() => {
-    const a = selected?.action;
-    if (!a) return "";
+  function actionLabel(r: WatchRule) {
+    const a = r.action;
     if (a.kind === "runMacro") return `run “${activity.macros.find((m) => m.id === a.macroId)?.name ?? "pick a macro"}”`;
     return a.kind === "stopEverything" ? "stop everything" : "just notify me";
-  });
+  }
+
+  let ready = (r: WatchRule) => r.region.w > 0 && r.region.h > 0;
 </script>
 
-{#if rules.length === 0}
-  <WatchPreview />
-  <div class="cta">
-    <button class="btn primary" onclick={add}>Create your first watch</button>
-  </div>
-{:else}
-  <div class="layout">
-    <aside>
-      <div class="side-head">
-        <h2>Screen Watch</h2>
-        <button class="btn small" onclick={add}>+ New</button>
-      </div>
-      {#each rules as r (r.id || r)}
-        {@const st = status[r.id]}
-        <button
-          class="rule glass"
-          class:on={r.id === selectedId}
-          class:live={r.enabled}
-          class:hit={flash[r.id]}
-          onclick={() => (selectedId = r.id)}
-        >
-          <span class="row1">
-            <span class="dot" class:watching={r.enabled} class:matched={r.enabled && st?.matched} class:err={!!st?.error}></span>
-            <b>{r.name}</b>
-          </span>
-          <small>{summary(r)}</small>
-          {#if r.enabled && st?.error}<small class="err-text">{st.error}</small>{/if}
-        </button>
-      {/each}
-    </aside>
+<div class="page">
+  <header class="head">
+    <div>
+      <h2>Screen Watch</h2>
+      <p>Watch part of your screen and react the moment something shows up.</p>
+    </div>
+    <button class="btn primary" onclick={add}>+ Add a watch</button>
+  </header>
 
-    {#if selected}
-      {@const r = selected}
-      <section class="detail glass">
+  <ol class="how">
+    <li><b>1</b><span><strong>Select an area</strong> of the screen, e.g. where your coins or a button appear</span></li>
+    <li><b>2</b><span><strong>Choose what to look for</strong>: text, a number, a colour or an image</span></li>
+    <li><b>3</b><span><strong>Choose what happens</strong>: run a macro, stop everything, or get notified</span></li>
+  </ol>
+
+  {#each rules as r (r.id || r)}
+    {@const st = status[r.id]}
+    <article class="watch glass" class:on={r.enabled} class:hit={flash[r.id]}>
+      <div class="form">
         <div class="top">
-          <input class="name" bind:value={r.name} spellcheck="false" aria-label="Watch name" />
+          <span class="dot" class:watching={r.enabled} class:matched={r.enabled && st?.matched} class:err={!!st?.error}></span>
+          <input class="name" type="text" bind:value={r.name} spellcheck="false" aria-label="Watch name" />
           <label class="enable" class:on={r.enabled}>
-            <span>{r.enabled ? "Watching" : "Off"}</span>
-            <Toggle checked={r.enabled} onchange={(v) => (r.enabled = v)} label="Enable this watch" />
+            {r.enabled ? "Watching" : "Off"}
+            <Toggle checked={r.enabled} onchange={(v) => (r.enabled = v)} label="Turn this watch on" />
           </label>
         </div>
 
-        <p class="sentence">
-          When <ConditionEditor bind:condition={r.condition} /> in
-          <span class="hug"><RegionChip bind:region={r.region} />,</span>
-          <Popover width={280}>
-            {#snippet trigger({ toggle, open })}
-              <button class="chip" class:open onclick={toggle}>{actionLabel}</button>
-            {/snippet}
-            {#snippet children({ close })}
-              <button class="item" class:on={r.action.kind === "notify"} onclick={() => ((r.action = { kind: "notify" }), close())}>
-                <b>Just notify me</b><small>A pop-up here (and Discord if on)</small>
-              </button>
-              <button class="item" class:on={r.action.kind === "stopEverything"} onclick={() => ((r.action = { kind: "stopEverything" }), close())}>
-                <b>Stop everything</b><small>Like pressing the panic key</small>
-              </button>
-              <div class="eyebrow pad">Run a macro</div>
-              {#each activity.macros as m}
-                <button
-                  class="item"
-                  class:on={r.action.kind === "runMacro" && r.action.macroId === m.id}
-                  onclick={() => ((r.action = { kind: "runMacro", macroId: m.id }), close())}
-                >
-                  <b>{m.name}</b>
-                </button>
-              {:else}
-                <p class="none">No macros yet. Record one on the Macros tab.</p>
-              {/each}
-            {/snippet}
-          </Popover>
-        </p>
+        <div class="step">
+          <span class="n">1</span>
+          <div>
+            <span class="label">Where</span>
+            <div class="line">
+              <RegionChip bind:region={r.region} />
+              {#if ready(r)}<span class="soft">at {r.region.x}, {r.region.y}</span>{:else}<span class="soft">drag a box on any monitor</span>{/if}
+            </div>
+          </div>
+        </div>
 
-        <div class="opts">
-          <label class="opt"><Toggle checked={r.discord} onchange={(v) => (r.discord = v)} label="Discord alert" /> Also send a Discord alert</label>
+        <div class="step">
+          <span class="n">2</span>
+          <div>
+            <span class="label">Look for</span>
+            <div class="line"><ConditionEditor bind:condition={r.condition} /></div>
+          </div>
+        </div>
+
+        <div class="step">
+          <span class="n">3</span>
+          <div>
+            <span class="label">Then</span>
+            <div class="line">
+              <Popover width={280}>
+                {#snippet trigger({ toggle, open })}
+                  <button class="chip" class:open onclick={toggle}>{actionLabel(r)}</button>
+                {/snippet}
+                {#snippet children({ close })}
+                  <button class="item" class:on={r.action.kind === "notify"} onclick={() => ((r.action = { kind: "notify" }), close())}>
+                    <b>Just notify me</b><small>A pop-up here (and Discord if on)</small>
+                  </button>
+                  <button class="item" class:on={r.action.kind === "stopEverything"} onclick={() => ((r.action = { kind: "stopEverything" }), close())}>
+                    <b>Stop everything</b><small>Like pressing the panic key</small>
+                  </button>
+                  <div class="eyebrow pad">Run a macro</div>
+                  {#each activity.macros as m}
+                    <button
+                      class="item"
+                      class:on={r.action.kind === "runMacro" && r.action.macroId === m.id}
+                      onclick={() => ((r.action = { kind: "runMacro", macroId: m.id }), close())}><b>{m.name}</b></button
+                    >
+                  {:else}
+                    <p class="none">No macros yet. Record one on the Macros tab.</p>
+                  {/each}
+                {/snippet}
+              </Popover>
+              <label class="opt"><Toggle checked={r.discord} onchange={(v) => (r.discord = v)} label="Discord alert" /> + Discord alert</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="foot">
           <span class="opt">Check every <InlineNumber value={r.pollMs} min={50} onchange={(v) => (r.pollMs = Math.round(v))} /> ms</span>
           <span class="opt">
-            Wait <InlineNumber value={r.cooldownMs / 1000} min={0} onchange={(v) => (r.cooldownMs = Math.round(v * 1000))} /> s before it can trigger again
+            Wait <InlineNumber value={r.cooldownMs / 1000} min={0} onchange={(v) => (r.cooldownMs = Math.round(v * 1000))} /> s before triggering
+            again
           </span>
+          <span class="spacer"></span>
+          <button class="del" onclick={() => (rules = rules.filter((x) => x !== r))}>Delete</button>
         </div>
+        {#if r.enabled && st?.error}<p class="err">{st.error}</p>{/if}
+      </div>
 
-        <div class="viewer-head">
-          <span class="eyebrow">Live view</span>
-          <span class="hint">Triggers when this changes from “doesn't match” to “matches”.</span>
-        </div>
+      <div class="viewer">
+        <span class="label">Live view</span>
         <WatchViewer
-          region={r.region}
+          region={ready(r) ? r.region : null}
           condition={r.condition}
-          onpickcolor={r.condition.kind === "colorAt"
+          onpickcolor={r.condition.kind === "colorAt" || r.condition.kind === "colorAppears"
             ? (dx, dy, rgb) => {
                 if (r.condition.kind === "colorAt") Object.assign(r.condition, { dx, dy, rgb });
+                if (r.condition.kind === "colorAppears") r.condition.rgb = rgb;
               }
             : undefined}
         />
-
-        <div class="foot">
-          <button class="del" onclick={() => remove(r.id)}>Delete watch</button>
-        </div>
-      </section>
-    {/if}
-  </div>
-{/if}
+        <p class="hint">It triggers when this changes from “doesn't match” to “matches”.</p>
+      </div>
+    </article>
+  {:else}
+    <div class="empty glass">
+      <p>No watches yet.</p>
+      <button class="btn primary" onclick={add}>+ Add your first watch</button>
+    </div>
+  {/each}
+</div>
 
 <style>
-  .cta {
-    display: flex;
-    justify-content: center;
-  }
-  .layout {
-    display: grid;
-    grid-template-columns: 270px 1fr;
-    gap: 18px;
-    align-items: start;
-  }
-  aside {
+  .page {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 16px;
   }
-  .side-head {
+  .head {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     justify-content: space-between;
-    padding: 4px 4px 6px;
+    padding: 0 4px;
   }
   h2 {
-    font-size: 19px;
-    letter-spacing: -0.02em;
+    font-size: 22px;
+    letter-spacing: -0.025em;
   }
-  .btn.small {
-    height: 30px;
-    padding: 0 12px;
+  .head p {
+    color: var(--text-3);
     font-size: 13px;
+    margin-top: 3px;
   }
-  .rule {
+  .how {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .how li {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    text-align: left;
+    gap: 12px;
+    align-items: flex-start;
     padding: 12px 14px;
-    border-radius: 16px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--stroke);
+    font-size: 13px;
+    color: var(--text-3);
+    line-height: 1.45;
+  }
+  .how strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .how b,
+  .step .n {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--cyan);
+    background: rgba(56, 214, 255, 0.12);
+    border: 1px solid rgba(56, 214, 255, 0.35);
+  }
+  .watch {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(300px, 1fr);
+    gap: 26px;
+    padding: 20px 22px;
     transition:
-      border-color 250ms var(--ease-smooth-out),
+      border-color 300ms var(--ease-smooth-out),
       box-shadow 400ms var(--ease-smooth-out);
   }
-  .rule.on {
-    border-color: rgba(56, 214, 255, 0.5);
+  .watch.on {
+    border-color: rgba(56, 214, 255, 0.35);
   }
-  .rule.hit {
-    box-shadow: 0 0 30px -6px rgba(61, 242, 176, 0.8);
+  .watch.hit {
+    box-shadow: 0 0 40px -10px rgba(61, 242, 176, 0.8);
   }
-  .row1 {
+  .form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+  .top {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
   }
-  .row1 b {
-    font-weight: 650;
-    font-size: 14px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .name {
+    flex: 1;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    padding: 2px 8px;
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
   }
-  .rule small {
+  .name:hover {
+    background: var(--glass) !important;
+  }
+  .enable {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-weight: 600;
+    font-size: 13px;
     color: var(--text-3);
-    font-size: 12px;
-    line-height: 1.4;
+    cursor: pointer;
   }
-  .rule .err-text {
-    color: #ffb3bd;
+  .enable.on {
+    color: var(--cyan);
   }
   .dot {
     flex: none;
-    width: 8px;
-    height: 8px;
+    width: 9px;
+    height: 9px;
     border-radius: 50%;
     background: var(--text-3);
     opacity: 0.5;
@@ -305,54 +328,36 @@
   }
   .dot.err {
     background: var(--red);
-    box-shadow: 0 0 8px var(--red);
   }
-  .detail {
-    padding: 22px 24px;
+  .step {
     display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-  .top {
-    display: flex;
-    align-items: center;
     gap: 12px;
   }
-  .name {
+  .step > div {
     flex: 1;
-    font-size: 22px;
-    font-weight: 700;
-    letter-spacing: -0.025em;
-    padding: 2px 8px;
-    margin-left: -9px;
-    background: transparent !important;
-    border-color: transparent !important;
-    box-shadow: none !important;
+    min-width: 0;
   }
-  .name:hover {
-    background: var(--glass) !important;
-  }
-  .enable {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-weight: 600;
-    font-size: 13px;
+  .label {
+    display: block;
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
     color: var(--text-3);
-    cursor: pointer;
+    margin-bottom: 6px;
   }
-  .enable.on {
-    color: var(--cyan);
-  }
-  .sentence {
+  .line {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 7px;
-    font-size: 16px;
+    gap: 8px;
+    font-size: 14.5px;
     font-weight: 550;
-    color: var(--text-2);
-    line-height: 1.8;
+  }
+  .soft {
+    color: var(--text-3);
+    font-size: 12.5px;
+    font-weight: 500;
   }
   .chip {
     font-weight: 650;
@@ -365,15 +370,6 @@
   .chip:hover,
   .chip.open {
     background: rgba(139, 108, 255, 0.3);
-  }
-  .hug {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-  }
-  .sentence :global(.pop) {
-    font-size: 14px;
-    line-height: 1.4;
   }
   .item {
     display: block;
@@ -405,41 +401,64 @@
     color: var(--text-3);
     padding: 4px 10px 6px;
   }
-  .opts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px 22px;
-    font-size: 13px;
-    color: var(--text-2);
-  }
   .opt {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-  }
-  .viewer-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    margin-top: 4px;
-  }
-  .hint {
-    font-size: 12px;
-    color: var(--text-3);
+    gap: 7px;
+    font-size: 13px;
+    color: var(--text-2);
+    font-weight: 500;
   }
   .foot {
     display: flex;
-    justify-content: flex-end;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 20px;
+    padding-top: 12px;
+    border-top: 1px solid var(--stroke);
+  }
+  .spacer {
+    flex: 1;
   }
   .del {
     font-size: 12.5px;
     font-weight: 600;
     color: var(--text-3);
-    padding: 6px 12px;
+    padding: 5px 12px;
     border-radius: 99px;
   }
   .del:hover {
     color: var(--red);
     background: rgba(255, 92, 112, 0.08);
+  }
+  .err {
+    font-size: 12.5px;
+    color: #ffb3bd;
+  }
+  .viewer {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .hint {
+    font-size: 11.5px;
+    color: var(--text-3);
+    margin-top: 8px;
+  }
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 40px;
+    color: var(--text-3);
+  }
+  @media (max-width: 900px) {
+    .watch {
+      grid-template-columns: 1fr;
+    }
+    .how {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

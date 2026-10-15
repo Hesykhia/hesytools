@@ -20,7 +20,10 @@
 
   function place(animate: boolean) {
     const tab = bar?.querySelector<HTMLButtonElement>(`[data-value="${CSS.escape(value)}"]`);
-    if (!tab || !pill) return;
+    if (!pill) return;
+    // No matching tab (e.g. on the Settings page): hide the pill.
+    pill.style.opacity = tab ? "1" : "0";
+    if (!tab) return;
     if (!animate) pill.style.transition = "none";
     pill.style.transform = `translateX(${tab.offsetLeft}px)`;
     pill.style.width = `${tab.offsetWidth}px`;
@@ -108,7 +111,8 @@
       0 4px 14px -4px rgba(0, 0, 0, 0.5);
     transition:
       transform var(--duration-fast) var(--ease-smooth-out),
-      width var(--duration-fast) var(--ease-smooth-out);
+      width var(--duration-fast) var(--ease-smooth-out),
+      opacity var(--duration-fast) var(--ease-smooth-out);
     will-change: transform, width;
     pointer-events: none;
   }

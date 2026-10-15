@@ -50,7 +50,13 @@ pub struct ClickerConfig {
     pub jitter_ms: f64,
     pub position: ClickPosition,
     pub stop_after: StopAfter,
+    /// Double-click each time (two presses close together), like OP Auto
+    /// Clicker's "click type: double".
+    pub double: bool,
 }
+
+/// Gap between the two presses of a double click.
+const DOUBLE_GAP: Duration = Duration::from_millis(30);
 
 impl Default for ClickerConfig {
     fn default() -> Self {
@@ -61,6 +67,7 @@ impl Default for ClickerConfig {
             jitter_ms: 0.0,
             position: ClickPosition::Current,
             stop_after: StopAfter::Never,
+            double: false,
         }
     }
 }
@@ -191,15 +198,20 @@ fn click_loop(cfg: &ClickerConfig, w: &Waiter, shared: &Shared) {
         if let ClickPosition::Fixed { x, y } = cfg.position {
             send(&[input::move_abs_event(x, y)]);
         }
-        if hold.is_zero() {
-            send(&[down, up]);
-        } else {
-            send(&[down]);
-            let finished = w.wait(hold);
-            // Always release, even when stopping mid-hold.
-            send(&[up]);
-            if !finished {
+        for press in 0..if cfg.double { 2 } else { 1 } {
+            if press == 1 && !w.wait(DOUBLE_GAP) {
                 return;
+            }
+            if hold.is_zero() {
+                send(&[down, up]);
+            } else {
+                send(&[down]);
+                let finished = w.wait(hold);
+                // Always release, even when stopping mid-hold.
+                send(&[up]);
+                if !finished {
+                    return;
+                }
             }
         }
         count += 1;

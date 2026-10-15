@@ -18,6 +18,9 @@
   } = $props();
 
   let root: HTMLSpanElement;
+  let pop: HTMLDivElement | undefined = $state();
+  /** Horizontal nudge so the panel never spills past the window edge. */
+  let shift = $state(0);
   let closing = $state(false);
   let shown = $state(false);
 
@@ -40,7 +43,16 @@
   $effect(() => {
     if (open) {
       shown = false;
-      requestAnimationFrame(() => (shown = true));
+      shift = 0;
+      requestAnimationFrame(() => {
+        if (pop) {
+          const r = pop.getBoundingClientRect();
+          const margin = 12;
+          if (r.right > window.innerWidth - margin) shift = window.innerWidth - margin - r.right;
+          else if (r.left < margin) shift = margin - r.left;
+        }
+        shown = true;
+      });
     }
   });
 
@@ -61,7 +73,9 @@
       class="pop glass {align}"
       class:shown={shown && !closing}
       class:closing
+      bind:this={pop}
       style:width="{width}px"
+      style:margin-left="{shift}px"
       role="dialog"
     >
       {@render children({ close })}
