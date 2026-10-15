@@ -60,8 +60,9 @@
     const w = dv.getUint32(0, true);
     const h = dv.getUint32(4, true);
     if (buf.byteLength < 8 + w * h * 4) return;
-    canvas.width = w;
-    canvas.height = h;
+    // Setting the size (even to the same value) reallocates the canvas.
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
     canvas.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(buf, 8, w * h * 4), w, h), 0, 0);
   }
 
