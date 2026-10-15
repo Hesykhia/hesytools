@@ -24,9 +24,24 @@ pub enum Cmp {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Condition {
     /// Any of the comma-separated phrases appears (case-insensitive).
-    TextAppears { text: String },
-    /// None of the phrases are visible any more.
-    TextGone { text: String },
+    ///
+    /// `digits_after` pins how many digits must directly follow the phrase:
+    /// "e25" with `Some(1)` matches e250..e259, "e2" with `Some(2)` matches
+    /// e200..e299, and `Some(0)` means exactly "e2" (not e25). `None` is a
+    /// plain "contains". "e+25" is read the same as "e25".
+    #[serde(rename_all = "camelCase")]
+    TextAppears {
+        text: String,
+        #[serde(default)]
+        digits_after: Option<u32>,
+    },
+    /// None of the phrases are visible any more (same matching rules).
+    #[serde(rename_all = "camelCase")]
+    TextGone {
+        text: String,
+        #[serde(default)]
+        digits_after: Option<u32>,
+    },
     /// Any number in the region compares true against `value`, so a box
     /// showing "WAVE 12 · 1.25e+25" still matches `>= 1e25`.
     /// Understands 1,234 · 1.25e+25 · 12.5K / 3M / 1.2B / 4T.
@@ -109,8 +124,8 @@ impl Watcher {
                         _ => None,
                     };
                     let matched = match cond {
-                        Condition::TextAppears { text: want } => contains_any(&text, want),
-                        Condition::TextGone { text: want } => !contains_any(&text, want),
+                        Condition::TextAppears { text: want, digits_after } => contains_any(&text, want, *digits_after),
+                        Condition::TextGone { text: want, digits_after } => !contains_any(&text, want, *digits_after),
                         Condition::Number { .. } => hit.is_some(),
                         _ => unreachable!(),
                     };
@@ -129,14 +144,40 @@ fn empty(capture_ms: f64) -> Check {
     Check { matched: false, text: None, number: None, numbers: Vec::new(), ocr_ran: false, capture_ms, ocr_ms: 0.0 }
 }
 
-fn contains_any(haystack: &str, phrases: &str) -> bool {
+fn contains_any(haystack: &str, phrases: &str, digits_after: Option<u32>) -> bool {
     let hay = normalize(haystack);
-    phrases.split(',').map(normalize).filter(|p| !p.is_empty()).any(|p| hay.contains(&p))
+    phrases
+        .split(',')
+        .map(normalize)
+        .filter(|p| !p.is_empty())
+        .any(|p| phrase_matches(&hay, &p, digits_after))
 }
 
-/// Lowercase and collapse whitespace so line breaks don't break matches.
+fn phrase_matches(hay: &str, phrase: &str, digits_after: Option<u32>) -> bool {
+    let Some(want) = digits_after else { return hay.contains(phrase) };
+    hay.match_indices(phrase).any(|(i, _)| {
+        // OCR often reads a 0 as the letter o; count it as a digit here.
+        let digits = hay[i + phrase.len()..].chars().take_while(|c| c.is_ascii_digit() || *c == 'o').count();
+        digits == want as usize
+    })
+}
+
+/// Lowercase, collapse whitespace (so line breaks don't break matches), and
+/// write exponents one way: "e+25" and "e 25" both become "e25".
 fn normalize(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+    let collapsed = s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    let c: Vec<char> = collapsed.chars().collect();
+    let mut out = String::with_capacity(collapsed.len());
+    let mut i = 0;
+    while i < c.len() {
+        out.push(c[i]);
+        if c[i] == 'e' && matches!(c.get(i + 1), Some('+') | Some(' ')) && c.get(i + 2).is_some_and(|d| d.is_ascii_digit()) {
+            i += 2;
+            continue;
+        }
+        i += 1;
+    }
+    out
 }
 
 fn compare(n: f64, op: Cmp, v: f64) -> bool {
@@ -247,10 +288,33 @@ mod tests {
     }
 
     #[test]
+    fn exponent_digits_after() {
+        let m = |hay: &str, p: &str, n: Option<u32>| contains_any(hay, p, n);
+        // +1: e250..e259 only
+        assert!(m("1.5e250", "e25", Some(1)));
+        assert!(m("Coins: e+259", "e25", Some(1)));
+        assert!(!m("e25", "e25", Some(1)));
+        assert!(!m("e2500", "e25", Some(1)));
+        // +2: e200..e299
+        assert!(m("3.1e+287", "e2", Some(2)));
+        assert!(!m("e25", "e2", Some(2)));
+        // +0: exactly e2
+        assert!(m("x 4.2e2 y", "e2", Some(0)));
+        assert!(!m("4.2e25", "e2", Some(0)));
+        // plain contains is the old loose behaviour
+        assert!(m("4.2e25", "e2", None));
+        // OCR read a zero as "o"
+        assert!(m("e25o", "e25", Some(1)));
+        // alternatives and "inf"
+        assert!(m("Rebirth: inf", "e306, inf", Some(0)));
+        assert!(m("1e306", "e306, inf", Some(0)));
+    }
+
+    #[test]
     fn text_matching() {
-        assert!(contains_any("Rebirth\nREADY!", "ready"));
-        assert!(contains_any("Press  Start", "nope, press start"));
-        assert!(!contains_any("Loading", "ready, done"));
+        assert!(contains_any("Rebirth\nREADY!", "ready", None));
+        assert!(contains_any("Press  Start", "nope, press start", None));
+        assert!(!contains_any("Loading", "ready, done", None));
         assert!(compare(1.25e25, Cmp::Equal, 1.25e25));
         assert!(compare(10.0, Cmp::AtLeast, 10.0));
     }

@@ -74,7 +74,7 @@ impl Default for WatchRule {
             name: "New watch".into(),
             enabled: false,
             region: Region::default(),
-            condition: Condition::TextAppears { text: String::new() },
+            condition: Condition::TextAppears { text: String::new(), digits_after: None },
             poll_ms: 250.0,
             action: WatchAction::Notify,
             discord: false,

@@ -54,8 +54,9 @@ export interface Region {
 export type Cmp = ">=" | "<=" | "==";
 
 export type Condition =
-  | { kind: "textAppears"; text: string }
-  | { kind: "textGone"; text: string }
+  /** digitsAfter: null = plain contains, 0 = exactly, N = exactly N more digits (e25 +1 = e250..e259). */
+  | { kind: "textAppears"; text: string; digitsAfter?: number | null }
+  | { kind: "textGone"; text: string; digitsAfter?: number | null }
   | { kind: "number"; op: Cmp; value: number }
   | { kind: "colorAt"; dx: number; dy: number; rgb: [number, number, number]; tolerance: number }
   | { kind: "changes" };

@@ -335,8 +335,8 @@ fn sync_watches(app: &AppHandle, a: &Arc<App>) {
 fn describe_watch(rule: &WatchRule) -> String {
     use engine::watch::Cmp;
     let what = match &rule.condition {
-        Condition::TextAppears { text } => format!("“{text}” appeared"),
-        Condition::TextGone { text } => format!("“{text}” disappeared"),
+        Condition::TextAppears { text, .. } => format!("“{text}” appeared"),
+        Condition::TextGone { text, .. } => format!("“{text}” disappeared"),
         Condition::Number { op, value } => {
             let op = match op {
                 Cmp::AtLeast => "≥",

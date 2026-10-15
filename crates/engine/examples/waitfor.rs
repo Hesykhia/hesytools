@@ -20,7 +20,7 @@ fn main() {
         steps: vec![
             Step::WaitFor {
                 region,
-                condition: Condition::TextAppears { text: args[4].clone() },
+                condition: Condition::TextAppears { text: args[4].clone(), digits_after: None },
                 timeout_ms: 8000.0,
                 poll_ms: 100.0,
                 on_timeout: OnTimeout::Stop,

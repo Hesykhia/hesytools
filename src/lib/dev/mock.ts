@@ -36,10 +36,10 @@ const settings: Settings = {
     },
     {
       id: "w2",
-      name: "Disconnected",
+      name: "Hit e250+",
       enabled: false,
       region: { x: 600, y: 400, w: 400, h: 60 },
-      condition: { kind: "textAppears", text: "Disconnected, Reconnect" },
+      condition: { kind: "textAppears", text: "e25", digitsAfter: 1 },
       pollMs: 1000,
       action: { kind: "stopEverything" },
       discord: true,
@@ -155,7 +155,7 @@ function clickerStatus() {
 
 /**
  * `?scene=` jumps straight to a state, for screenshots:
- * editor:<id>, playing:<id> (editor with live playback), recording, watch.
+ * editor:<id>, playing:<id> (editor with live playback), recording, watch[:n].
  */
 async function applyScene() {
   const scene = new URLSearchParams(location.search).get("scene");
@@ -171,6 +171,8 @@ async function applyScene() {
   }
   if (kind === "watch") {
     (document.querySelector('[data-value="watch"]') as HTMLButtonElement | null)?.click();
+    // watch:<n> selects the nth rule
+    if (id) setTimeout(() => (document.querySelectorAll<HTMLButtonElement>(".rule")[Number(id)] ?? null)?.click(), 300);
   }
   if (kind === "recording") {
     recording = true;

@@ -87,7 +87,7 @@
     const c = r.condition;
     const when =
       c.kind === "textAppears"
-        ? `“${c.text || "…"}” appears`
+        ? `“${c.text || "…"}”${c.digitsAfter ? ` +${c.digitsAfter}` : ""} appears`
         : c.kind === "textGone"
           ? `“${c.text || "…"}” disappears`
           : c.kind === "number"

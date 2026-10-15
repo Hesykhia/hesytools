@@ -16,9 +16,10 @@
   function setKind(kind: Condition["kind"]) {
     if (kind === condition.kind) return;
     const text = "text" in condition ? condition.text : "";
+    const digitsAfter = "text" in condition ? (condition.digitsAfter ?? null) : null;
     condition =
       kind === "textAppears" || kind === "textGone"
-        ? { kind, text }
+        ? { kind, text, digitsAfter }
         : kind === "number"
           ? { kind, op: ">=", value: 100 }
           : kind === "colorAt"
@@ -30,6 +31,23 @@
   const OP_LABEL: Record<Cmp, string> = { ">=": "at least", "<=": "at most", "==": "exactly" };
 
   let label = $derived(KINDS.find((k) => k.kind === condition.kind)?.label ?? "");
+
+  // "+N digits": e25 with +1 covers e250..e259 (from the old tool's min_after).
+  const DIGIT_OPTIONS: { value: number | null; label: string; hint: string }[] = [
+    { value: null, label: "Contains", hint: "Matches anywhere, even inside longer text" },
+    { value: 0, label: "Exactly", hint: "e2 matches e2, but not e25" },
+    { value: 1, label: "+1 digit", hint: "e25 matches e250 to e259" },
+    { value: 2, label: "+2 digits", hint: "e2 matches e200 to e299" },
+    { value: 3, label: "+3 digits", hint: "e2 matches e2000 to e2999" },
+  ];
+  function digitsLabel(n: number | null | undefined) {
+    return n == null ? "contains" : n === 0 ? "exactly" : `+${n} digit${n === 1 ? "" : "s"}`;
+  }
+  function rangeHint(text: string, n: number | null | undefined): string {
+    const first = text.split(",")[0]?.trim();
+    if (!first || n == null || n === 0) return "";
+    return `${first}${"0".repeat(n)}–${first}${"9".repeat(n)}`;
+  }
   const hex = (rgb: number[]) => "#" + rgb.map((c) => c.toString(16).padStart(2, "0")).join("");
 </script>
 
@@ -56,6 +74,22 @@
       title="Separate options with commas; any of them counts"
       style:width="{Math.max(10, condition.text.length + 3)}ch"
     />
+    {@const c = condition}
+    <Popover width={290}>
+      {#snippet trigger({ toggle, open })}
+        <button class="chip soft" class:open onclick={toggle} title="How strictly the text must match">
+          {digitsLabel(c.digitsAfter)}{#if rangeHint(c.text, c.digitsAfter)}<span class="range">{rangeHint(c.text, c.digitsAfter)}</span>{/if}
+        </button>
+      {/snippet}
+      {#snippet children({ close })}
+        {#each DIGIT_OPTIONS as o}
+          <button class="item" class:on={(c.digitsAfter ?? null) === o.value} onclick={() => ((c.digitsAfter = o.value), close())}>
+            <b>{o.label}</b><small>{o.hint}</small>
+          </button>
+        {/each}
+        <p class="tip">“e+25” is read the same as “e25”. Separate options with commas, like <b>e30, inf</b>.</p>
+      {/snippet}
+    </Popover>
   {:else if condition.kind === "number"}
     {@const c = condition}
     <button class="chip soft" onclick={() => (c.op = OPS[(OPS.indexOf(c.op) + 1) % OPS.length])}>{OP_LABEL[c.op]}</button>
@@ -102,6 +136,17 @@
   .soft {
     color: var(--text-3);
     font-weight: 500;
+  }
+  .range {
+    margin-left: 6px;
+    font-weight: 600;
+    color: var(--cyan);
+  }
+  .tip {
+    font-size: 12px;
+    color: var(--text-3);
+    padding: 8px 10px 2px;
+    line-height: 1.45;
   }
   .swatch {
     width: 20px;
