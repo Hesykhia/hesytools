@@ -26,6 +26,7 @@
     reserveMinutes: 0,
     treeStop: true,
     treeBuy: false,
+    secrets: true,
     ritual: { mode: "off", worth: 1.5, shards: 10 },
   };
   // svelte-ignore state_referenced_locally
@@ -100,7 +101,7 @@
   const open = (url: string) => api.openLink(url).catch((e) => toast(errorText(e), "error"));
 
   const AUTOMATIONS: {
-    key: "favors" | "crystals" | "leech" | "blessings" | "buyUpgrades" | "buyGens";
+    key: "favors" | "crystals" | "leech" | "blessings" | "buyUpgrades" | "buyGens" | "secrets";
     name: string;
     what: string;
   }[] = [
@@ -117,6 +118,11 @@
       key: "buyGens",
       name: "Buy generators",
       what: "Whatever pays off soonest against everything you make, including saving up for the next 10/25/50… milestone that doubles a generator",
+    },
+    {
+      key: "secrets",
+      name: "Collect free secrets",
+      what: "Each secret is +1% output. Tries on every look you've unlocked once and puts yours back, opens the Options once, holds exactly 100 Patrons for a moment, and so on",
     },
   ];
   const RITUAL: { value: RitualMode; label: string }[] = [
@@ -214,7 +220,7 @@
       {#if stats}
         <p class="tally">
           {stats.favors} favors · {stats.spheres ?? 0} spheres · {stats.crystals} Mid-Bosses · {stats.upgrades} upgrades ·
-          {stats.treeNodes ?? 0} tree nodes · {stats.gens} generators · {stats.rituals}
+          {stats.treeNodes ?? 0} tree nodes · {stats.secrets ?? 0} secrets · {stats.gens} generators · {stats.rituals}
           Rituals this session{#if stats.last}<span class="last">&nbsp;· {stats.last}</span>{/if}
         </p>
       {/if}
@@ -282,7 +288,8 @@
             <b>Spend shards on the tree</b>
             <small>
               Buys the nodes worth the most per shard (more output, better shard rate, more shards per Ritual, boosts to what
-              your runs are made of). Saves up when something much better is close. Skips cosmetics.
+              your runs are made of). Saves up when something much better is close. Counts cosmetic nodes by the secrets they open
+              when Collect free secrets is on.
             </small>
           </div>
           <Toggle checked={cfg.treeBuy} onchange={(v) => (cfg.treeBuy = v)} label="Spend shards on the tree" />

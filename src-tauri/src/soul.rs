@@ -61,6 +61,10 @@ pub struct SoulConfig {
     pub tree_stop: bool,
     /// Spend Patron Shards on the best skill tree nodes after a Ritual.
     pub tree_buy: bool,
+    /// Pick up the free secrets (each one is +1% output): try on every look,
+    /// open the Options once, and so on.
+    #[serde(default = "yes")]
+    pub secrets: bool,
     pub ritual: RitualRule,
 }
 

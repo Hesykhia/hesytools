@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         hesytools · Soul Clicker helper
 // @namespace    hesytools
-// @version      1.6.0
+// @version      1.7.0
 // @description  Lets hesytools play Soul Clicker for you: catches favors, buys, runs the Ritual. Only presses the game's own buttons.
 // @match        https://www.deadchaps.gg/soul-clicker*
 // @match        https://deadchaps.gg/soul-clicker*
@@ -22,7 +22,7 @@
 
   const BRIDGE = "http://127.0.0.1:__PORT__/soul";
   const TOKEN = "__TOKEN__";
-  const VERSION = "1.6.0";
+  const VERSION = "1.7.0";
 
   /** Off until hesytools says otherwise. */
   let cfg = {
@@ -39,6 +39,7 @@
     reserveMinutes: 0,
     treeStop: true,
     treeBuy: false,
+    secrets: false,
     ritual: { mode: "off", worth: 1.5, shards: 10 },
   };
   const stats = { plan: "", treeNodes: 0, favors: 0, spheres: 0, crystals: 0, leeches: 0, blessings: 0, gens: 0, upgrades: 0, rituals: 0, orbClicks: 0, last: "" };
@@ -252,6 +253,7 @@
     const options = [];
     if (cfg.buyGens && !selling()) {
       for (const o of e.gens) {
+        if (holdExact(o)) continue;
         options.push({ el: o.g, can: o.can, cost: o.cost, qty: o.qty, kind: "gen", name: o.name, score: payback(o.cost, o.each * e.boost * o.qty) });
         const goal = MILESTONES.find(([at]) => at > o.owned);
         if (goal) {
@@ -532,7 +534,9 @@
         const owned = new Set(nodes.filter((n) => n.own || n.paid > 0).map((n) => TREE[n.name]?.[0]));
         const perShard = owned.has("ledger_of_the_overworld") ? 5 : owned.has("usury_eternal") ? 4 : owned.has("patron_manifest") ? 3 : 2;
         const t = { rituals, bonus, perShard, locked: clicksLocked() };
-        const value = new Map(nodes.map((n) => [n, n.name && !TREE[n.name][3] ? nodeValue(n.effect, t) : 0]));
+        const value = new Map(
+          nodes.map((n) => [n, !n.name ? 0 : !TREE[n.name][3] ? nodeValue(n.effect, t) : cfg.secrets ? lookValue(TREE[n.name][0], owned) : 0]),
+        );
         // A node that opens something good is worth part of that too.
         for (const n of nodes) {
           if (n.own || !n.name) continue;
@@ -594,11 +598,177 @@
     // ("The Concierge Noticed") doesn't flag it.
     const gap = (1000 / cps) * (0.55 + Math.random() * 0.9);
     setTimeout(orbLoop, gap);
-    if (!cfg.enabled || !(cfg.orb || boost) || document.hidden || onTree()) return;
+    if (!cfg.enabled || !(cfg.orb || boost) || document.hidden || onTree() || secretsBusy) return;
     const orb = $("button.orb");
     if (orb) {
       orb.click();
       stats.orbClicks++;
+    }
+  }
+
+  // ── Secrets ───────────────────────────────────────────────────────────────
+  // Every secret (achievement) found adds 1% to souls per second, and they
+  // multiply. Plenty cost nothing: wearing each look once, opening the
+  // Options, clicking the news wire... Each is done once, then remembered.
+  const DONE_KEY = "hesytools.secrets";
+  const secretsDone = new Set((() => {
+    try {
+      return JSON.parse(localStorage.getItem(DONE_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  })());
+  const markDone = (k) => {
+    secretsDone.add(k);
+    try {
+      localStorage.setItem(DONE_KEY, JSON.stringify([...secretsDone]));
+    } catch {}
+  };
+
+  /** Secrets a cosmetic tree node opens up, as "% more output". One for the
+   * node, one per look it lets you wear, and a few for full sets. */
+  const LOOK_SECRETS = { ind_numfmt: 3, ind_tide: 8, ind_core: 6, ind_backdrop: 7, ind_season: 1 };
+  function lookValue(id, owned) {
+    let k = LOOK_SECRETS[id] ?? (/^set_/.test(id) ? 5 : 0);
+    const trio = ["ind_tide", "ind_core", "ind_backdrop"];
+    const five = [...trio, "ind_numfmt", "ind_season"];
+    const completes = (set) => set.includes(id) && set.every((x) => x === id || owned.has(x));
+    // Wearing the default look with all three pickers; owning all five.
+    if (completes(trio)) k += 1;
+    if (completes(five)) k += 2;
+    return (Math.pow(1.01, k) - 1) * 100;
+  }
+
+  /** Hold exactly this many of a source for a moment ("not one more"). */
+  const EXACT = { "The Patron": 100, "The Cursed Apple": 50, Trooper: 500 };
+  const exactSince = {};
+  function holdExact(o) {
+    if (!cfg.secrets || EXACT[o.name] !== o.owned || secretsDone.has("exact:" + o.name)) return false;
+    // The game checks secrets about once a second.
+    exactSince[o.name] ??= Date.now() + 3000;
+    if (Date.now() < exactSince[o.name]) return true;
+    markDone("exact:" + o.name);
+    return false;
+  }
+
+  /** Busy with a picker or a side screen: don't click anything else, since
+   * any other click closes it. */
+  let secretsBusy = false;
+  const button = (label) => $$("button").find((b) => b.offsetParent !== null && text(b).toLowerCase() === label.toLowerCase());
+  const quick = async (fn) => {
+    secretsBusy = true;
+    try {
+      return await fn();
+    } finally {
+      secretsBusy = false;
+    }
+  };
+
+  /** Put on every look once (one secret each), then go back to yours. */
+  async function wearLooks() {
+    const pickerOf = (cat) => $(`button.season-tok.cosmetic[data-cat="${cat}"]`);
+    const choose = (cat, label) =>
+      quick(async () => {
+        const tok = pickerOf(cat);
+        if (!tok) return false;
+        if (!$(".switch-opts.on")) press(tok);
+        await sleep(250);
+        const pick = $$(".switch-opts.on button.pick").find((b) => text(b) === label);
+        if (pick) press(pick);
+        await sleep(150);
+        if ($(".switch-opts.on")) press(tok);
+        return !!pick;
+      });
+    const options = (cat) =>
+      quick(async () => {
+        const tok = pickerOf(cat);
+        if (!tok) return { list: [], mine: "" };
+        press(tok);
+        await sleep(250);
+        const picks = $$(".switch-opts.on button.pick");
+        const list = picks.map(text);
+        const mine = text(picks.find((b) => b.classList.contains("on")));
+        press(tok);
+        return { list, mine };
+      });
+    const cats = $$("button.season-tok.cosmetic[data-cat]").map((b) => b.dataset.cat).filter((c) => c !== "season");
+    for (const cat of cats) {
+      const { list, mine } = await options(cat);
+      const todo = list.filter((l) => l !== mine && !secretsDone.has("look:" + cat + ":" + l));
+      if (!todo.length) continue;
+      for (const l of todo) {
+        if (!cfg.enabled || !cfg.secrets || onTree()) return;
+        if (await choose(cat, l)) {
+          stats.last = "Trying on " + l;
+          await sleep(2500);
+          markDone("look:" + cat + ":" + l);
+          stats.secrets = (stats.secrets || 0) + 1;
+        }
+      }
+      await choose(cat, mine);
+    }
+    // The default look, with all three pickers bought.
+    const plain = { tide: "Soul Teal", core: "Soul Teal", backdrop: "By Era" };
+    if (Object.keys(plain).every((c) => cats.includes(c)) && !secretsDone.has("look:plain")) {
+      const mine = {};
+      for (const c in plain) mine[c] = (await options(c)).mine;
+      for (const c in plain) if (mine[c] !== plain[c]) await choose(c, plain[c]);
+      stats.last = "Wearing the plain look for a moment";
+      await sleep(2500);
+      for (const c in plain) if (mine[c] !== plain[c]) await choose(c, mine[c]);
+      markDone("look:plain");
+      stats.secrets = (stats.secrets || 0) + 1;
+      stats.last = "Tried on every look, yours is back on";
+    }
+  }
+
+  /** One-off secrets for pressing ordinary buttons. */
+  async function smallSecrets() {
+    if (!secretsDone.has("options") && button("OPTIONS")) {
+      await quick(async () => {
+        press(button("OPTIONS"));
+        await sleep(500);
+        const back = button("Back to the Holdings");
+        if (back) press(back);
+      });
+      markDone("options");
+    }
+    if (!secretsDone.has("wire") && $(".bar-ticker")) {
+      $(".bar-ticker").click();
+      markDone("wire");
+    }
+    // The max buy toggle, then back to whatever was picked.
+    const qty = $$("button").filter((b) => /^(x1|x10|x100|max)$/.test(text(b)));
+    if (!secretsDone.has("max") && qty.length) {
+      const was = qty.find((b) => b.classList.contains("on"));
+      press(qty.find((b) => text(b) === "max"));
+      await sleep(200);
+      if (was) press(was);
+      markDone("max");
+    }
+    // "Some secrets you just take": click a locked one under Stats.
+    if (!secretsDone.has("poke") && button("STATS")) {
+      await quick(async () => {
+        press(button("STATS"));
+        await sleep(600);
+        for (const s of $$("span.ach:not(.got):not(.hotel)")) s.click();
+        await sleep(200);
+        const back = button("Back to the Holdings");
+        if (back) press(back);
+      });
+      markDone("poke");
+    }
+  }
+
+  let secretsRunning = false;
+  async function collectSecrets() {
+    if (secretsRunning) return;
+    secretsRunning = true;
+    try {
+      await smallSecrets();
+      await wearLooks();
+    } finally {
+      secretsRunning = false;
     }
   }
 
@@ -609,14 +779,15 @@
   function tick() {
     holdOrb();
     if (cfg.enabled && cfg.treeBuy && $(".asc-wrap.on") && !treeBusy && tickN++ % 16 === 0) spendTree();
-    if (!cfg.enabled || onTree()) return;
+    if (!cfg.enabled || onTree() || secretsBusy) return;
     catchPopups();
     tickN++;
+    if (cfg.secrets && !ritualBusy && tickN % 80 === 0) collectSecrets();
     // Shopping a few times a second is plenty.
     if (tickN % 2 === 0) {
       if (cfg.buyGens || cfg.buyUpgrades) buyBest();
     }
-    if (tickN % 8 === 0) maybeRitual();
+    if (tickN % 8 === 0 && !secretsRunning) maybeRitual();
   }
 
   // ── Talking to hesytools (only on this PC) ────────────────────────────────

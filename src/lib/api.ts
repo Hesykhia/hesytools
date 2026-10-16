@@ -103,6 +103,8 @@ export interface SoulConfig {
   treeStop: boolean;
   /** Spend shards on the best tree nodes. */
   treeBuy: boolean;
+  /** Pick up the free secrets (+1% output each). */
+  secrets: boolean;
   ritual: { mode: RitualMode; worth: number; shards: number };
 }
 
@@ -116,6 +118,7 @@ export interface SoulReport {
       /** What the generator buyer is aiming for. */
       plan?: string;
       treeNodes?: number;
+      secrets?: number;
       favors: number;
       spheres?: number;
       crystals: number;
