@@ -14,6 +14,10 @@ use std::time::Duration;
 pub const PORT: u16 = 47629;
 const SCRIPT: &str = include_str!("../assets/soul-helper.user.js");
 
+fn yes() -> bool {
+    true
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct RitualRule {
@@ -51,6 +55,10 @@ pub struct SoulConfig {
     /// Keep this many minutes of income unspent (Lucky Souls pays up to
     /// 15% of what you hold).
     pub reserve_minutes: f64,
+    /// After a Ritual, stay on the skill tree instead of starting the next
+    /// run straight away (the tree can only be opened then).
+    #[serde(default = "yes")]
+    pub tree_stop: bool,
     pub ritual: RitualRule,
 }
 

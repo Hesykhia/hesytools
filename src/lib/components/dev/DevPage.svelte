@@ -24,6 +24,7 @@
     orb: false,
     orbCps: 8,
     reserveMinutes: 0,
+    treeStop: true,
     ritual: { mode: "off", worth: 1.5, shards: 10 },
   };
   // svelte-ignore state_referenced_locally
@@ -266,7 +267,18 @@
             Sacrifice as soon as a single shard is waiting, every time.
           {/if}
         </p>
-        <p class="explain soft">Spending shards on the tree stays up to you.</p>
+        {#if cfg.ritual.mode !== "off"}
+          <div class="row tree">
+            <div class="text">
+              <b>Stop on the skill tree</b>
+              <small>
+                The tree only opens right after a Ritual. Leave it up so you can spend shards, then press Return to the run. Off =
+                carry straight on (good when you're away).
+              </small>
+            </div>
+            <Toggle checked={cfg.treeStop} onchange={(v) => (cfg.treeStop = v)} label="Stop on the skill tree after a Ritual" />
+          </div>
+        {/if}
       </div>
     </div>
 
@@ -508,6 +520,9 @@
     color: var(--text-2);
     margin-top: 12px;
     line-height: 1.55;
+  }
+  .row.tree {
+    margin-top: 10px;
   }
   .explain.soft {
     color: var(--text-3);

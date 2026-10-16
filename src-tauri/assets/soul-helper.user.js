@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         hesytools · Soul Clicker helper
 // @namespace    hesytools
-// @version      1.3.0
+// @version      1.4.0
 // @description  Lets hesytools play Soul Clicker for you: catches favors, buys, runs the Ritual. Only presses the game's own buttons.
 // @match        https://www.deadchaps.gg/soul-clicker*
 // @match        https://deadchaps.gg/soul-clicker*
@@ -22,7 +22,7 @@
 
   const BRIDGE = "http://127.0.0.1:__PORT__/soul";
   const TOKEN = "__TOKEN__";
-  const VERSION = "1.3.0";
+  const VERSION = "1.4.0";
 
   /** Off until hesytools says otherwise. */
   let cfg = {
@@ -37,6 +37,7 @@
     orb: false,
     orbCps: 8,
     reserveMinutes: 0,
+    treeStop: true,
     ritual: { mode: "off", worth: 1.5, shards: 10 },
   };
   const stats = { plan: "", favors: 0, spheres: 0, crystals: 0, leeches: 0, blessings: 0, gens: 0, upgrades: 0, rituals: 0, orbClicks: 0, last: "" };
@@ -285,12 +286,19 @@
     if (yes) {
       press(yes);
       await sleep(1200);
-      const next = visibleButton("Begin the run") || visibleButton("Return to the run");
-      if (next) press(next);
+      // The skill tree only ever opens here. Either leave it up for the
+      // player to spend shards, or carry straight on into the next run.
+      if (!cfg.treeStop) {
+        const next = visibleButton("Begin the run") || visibleButton("Return to the run");
+        if (next) press(next);
+      }
       await sleep(600);
     }
     const after = text($(".souls-count"));
-    if (yes && after !== before) stats.rituals++;
+    if (yes && after !== before) {
+      stats.rituals++;
+      if (cfg.treeStop) stats.last = "Ritual done. Waiting on the skill tree: press Return to the run when you're finished";
+    }
     else {
       stats.last = "Ritual didn't go through";
       const cancel = visibleButton("Cancel");
@@ -321,7 +329,7 @@
     // ("The Concierge Noticed") doesn't flag it.
     const gap = (1000 / cps) * (0.55 + Math.random() * 0.9);
     setTimeout(orbLoop, gap);
-    if (!cfg.enabled || !(cfg.orb || boost) || document.hidden) return;
+    if (!cfg.enabled || !(cfg.orb || boost) || document.hidden || onTree()) return;
     const orb = $("button.orb");
     if (orb) {
       orb.click();
@@ -331,9 +339,11 @@
 
   // ── Main loop ─────────────────────────────────────────────────────────────
   let tickN = 0;
+  /** The Ritual / skill tree screen is up: leave everything alone. */
+  const onTree = () => !!$(".asc-wrap.on, .asc-confirm.on");
   function tick() {
     holdOrb();
-    if (!cfg.enabled) return;
+    if (!cfg.enabled || onTree()) return;
     catchPopups();
     tickN++;
     // Shopping a few times a second is plenty.

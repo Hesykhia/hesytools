@@ -99,6 +99,8 @@ export interface SoulConfig {
   orb: boolean;
   orbCps: number;
   reserveMinutes: number;
+  /** After a Ritual, stay on the skill tree. */
+  treeStop: boolean;
   ritual: { mode: RitualMode; worth: number; shards: number };
 }
 
