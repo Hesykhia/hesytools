@@ -105,6 +105,8 @@ export interface SoulConfig {
   treeBuy: boolean;
   /** Pick up the free secrets (+1% output each). */
   secrets: boolean;
+  /** Take the Vow of the Empty Hand before each run. */
+  emptyHand: boolean;
   ritual: { mode: RitualMode; worth: number; shards: number };
 }
 

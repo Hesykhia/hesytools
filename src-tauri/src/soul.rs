@@ -65,6 +65,9 @@ pub struct SoulConfig {
     /// open the Options once, and so on.
     #[serde(default = "yes")]
     pub secrets: bool,
+    /// Take the Vow of the Empty Hand before each run (+25% shards).
+    #[serde(default = "yes")]
+    pub empty_hand: bool,
     pub ritual: RitualRule,
 }
 

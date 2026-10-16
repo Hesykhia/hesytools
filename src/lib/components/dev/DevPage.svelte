@@ -27,6 +27,7 @@
     treeStop: true,
     treeBuy: false,
     secrets: true,
+    emptyHand: true,
     ritual: { mode: "off", worth: 1.5, shards: 10 },
   };
   // svelte-ignore state_referenced_locally
@@ -293,6 +294,16 @@
             </small>
           </div>
           <Toggle checked={cfg.treeBuy} onchange={(v) => (cfg.treeBuy = v)} label="Spend shards on the tree" />
+        </div>
+        <div class="row tree">
+          <div class="text">
+            <b>Take the Vow of the Empty Hand</b>
+            <small>
+              Ticks it on the screen before each run: +25% shards at that run's Ritual, but clicks earn 1 soul. Recommended on;
+              turn it off if you like to click a lot yourself.
+            </small>
+          </div>
+          <Toggle checked={cfg.emptyHand} onchange={(v) => (cfg.emptyHand = v)} label="Take the Vow of the Empty Hand" />
         </div>
         {#if cfg.ritual.mode !== "off"}
           <div class="row tree">

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         hesytools · Soul Clicker helper
 // @namespace    hesytools
-// @version      1.7.0
+// @version      1.7.1
 // @description  Lets hesytools play Soul Clicker for you: catches favors, buys, runs the Ritual. Only presses the game's own buttons.
 // @match        https://www.deadchaps.gg/soul-clicker*
 // @match        https://deadchaps.gg/soul-clicker*
@@ -22,7 +22,7 @@
 
   const BRIDGE = "http://127.0.0.1:__PORT__/soul";
   const TOKEN = "__TOKEN__";
-  const VERSION = "1.7.0";
+  const VERSION = "1.7.1";
 
   /** Off until hesytools says otherwise. */
   let cfg = {
@@ -40,6 +40,7 @@
     treeStop: true,
     treeBuy: false,
     secrets: false,
+    emptyHand: false,
     ritual: { mode: "off", worth: 1.5, shards: 10 },
   };
   const stats = { plan: "", treeNodes: 0, favors: 0, spheres: 0, crystals: 0, leeches: 0, blessings: 0, gens: 0, upgrades: 0, rituals: 0, orbClicks: 0, last: "" };
@@ -401,8 +402,18 @@
       // then either leave it up for the player or carry on into the next run.
       if (cfg.treeBuy) await spendTree();
       if (!cfg.treeStop) {
-        const next = visibleButton("Begin the run") || visibleButton("Return to the run");
-        if (next) press(next);
+        let next = visibleButton("Begin the run") || visibleButton("Return to the run");
+        // "Return to the run" can lead to the vow screen first.
+        if (next && text(next) === "Return to the run") {
+          press(next);
+          await sleep(600);
+          next = visibleButton("Begin the run");
+        }
+        if (next) {
+          if (cfg.emptyHand) takeEmptyHand();
+          await sleep(200);
+          press(next);
+        }
       }
       await sleep(600);
     }
@@ -772,6 +783,28 @@
     }
   }
 
+  /** Tick the Vow of the Empty Hand on the screen before a run: +25% shards
+   * at its Ritual, for clicks earning 1 soul. Once per screen, so unticking
+   * it by hand sticks. */
+  let vowScreen = false;
+  function takeEmptyHand() {
+    const picks = $$(".vow-picks label.vow").filter((l) => l.offsetParent !== null);
+    if (!picks.length) {
+      vowScreen = false;
+      return;
+    }
+    if (vowScreen) return;
+    for (const l of picks) {
+      const box = l.querySelector("input");
+      if (!/Empty Hand/i.test(text(l)) || !box || box.disabled) continue;
+      vowScreen = true;
+      if (!box.checked) {
+        box.click();
+        stats.last = "Took the Vow of the Empty Hand (+25% shards)";
+      }
+    }
+  }
+
   // ── Main loop ─────────────────────────────────────────────────────────────
   let tickN = 0;
   /** The Ritual / skill tree screen is up: leave everything alone. */
@@ -779,6 +812,7 @@
   function tick() {
     holdOrb();
     if (cfg.enabled && cfg.treeBuy && $(".asc-wrap.on") && !treeBusy && tickN++ % 16 === 0) spendTree();
+    if (cfg.enabled && cfg.emptyHand) takeEmptyHand();
     if (!cfg.enabled || onTree() || secretsBusy) return;
     catchPopups();
     tickN++;
