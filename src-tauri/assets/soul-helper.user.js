@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         hesytools · Soul Clicker helper
 // @namespace    hesytools
-// @version      1.5.0
+// @version      1.5.1
 // @description  Lets hesytools play Soul Clicker for you: catches favors, buys, runs the Ritual. Only presses the game's own buttons.
 // @match        https://www.deadchaps.gg/soul-clicker*
 // @match        https://deadchaps.gg/soul-clicker*
@@ -22,7 +22,7 @@
 
   const BRIDGE = "http://127.0.0.1:__PORT__/soul";
   const TOKEN = "__TOKEN__";
-  const VERSION = "1.5.0";
+  const VERSION = "1.5.1";
 
   /** Off until hesytools says otherwise. */
   let cfg = {
@@ -206,7 +206,7 @@
     const payback = (cost, gain) => (cost <= bank ? 0 : earn > 0 ? (cost - bank) / earn : Infinity) + cost / gain;
     let best = null;
     for (const o of gens) {
-      const plain = { o, kind: "buy", score: payback(o.cost, o.each * boost * o.qty) };
+      const plain = { o, kind: "buy", cost: o.cost, score: payback(o.cost, o.each * boost * o.qty) };
       if (!best || plain.score < best.score) best = plain;
       const goal = MILESTONES.find(([at]) => at > o.owned);
       if (goal) {
@@ -215,20 +215,33 @@
         const units = (o.next * (Math.pow(GROWTH, need) - 1)) / (GROWTH - 1);
         // All `at` of them end up making twice as much.
         const gain = (2 * at - o.owned) * o.each * boost;
-        const push = { o, kind: "goal", at, score: payback(units + o.base * x, gain) };
+        const push = { o, kind: "goal", at, cost: units + o.base * x, score: payback(units + o.base * x, gain) };
         if (push.score < best.score) best = push;
       }
     }
     if (!best) return false;
     const o = best.o;
+    // Show the reasoning: how soon it pays for itself, and what it costs
+    // measured in seconds of everything you make.
+    const why = " · pays for itself in " + span(best.score) + ", costs " + span(earn > 0 ? best.cost / earn : Infinity) + " of income";
     stats.plan =
-      best.kind === "goal" ? "Working toward " + best.at + " " + o.name + " (doubles them)" : "Next: " + o.name;
+      (best.kind === "goal" ? "Working toward " + best.at + " " + o.name + " (doubles them)" : "Next: " + o.name) + why;
     // Wait (and keep the reserve) rather than spending on something worse.
     if (!o.can || souls - o.cost < reserve) return false;
     press(o.g);
     stats.gens += o.qty;
     stats.last = "Bought " + (o.qty > 1 ? o.qty + " " : "") + o.name;
     return true;
+  }
+
+  /** 0.00004 s, 2.1 s, 4m 10s, 3h 5m... */
+  function span(secs) {
+    if (!isFinite(secs)) return "never";
+    if (secs < 1) return secs.toPrecision(2) + " s";
+    if (secs < 60) return secs.toFixed(1) + " s";
+    if (secs < 3600) return Math.floor(secs / 60) + "m " + Math.round(secs % 60) + "s";
+    if (secs < 86400) return Math.floor(secs / 3600) + "h " + Math.round((secs % 3600) / 60) + "m";
+    return Math.round(secs / 86400) + " days";
   }
 
   /** Don't spend into the reserve on upgrades either. */
