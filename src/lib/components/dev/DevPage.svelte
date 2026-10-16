@@ -25,6 +25,7 @@
     orbCps: 8,
     reserveMinutes: 0,
     treeStop: true,
+    treeBuy: false,
     ritual: { mode: "off", worth: 1.5, shards: 10 },
   };
   // svelte-ignore state_referenced_locally
@@ -107,7 +108,11 @@
     { key: "crystals", name: "Kill Mid-Bosses", what: "For their Rejuv Crystals" },
     { key: "leech", name: "Claim the Soul Leech", what: "What your sources earned while you were away" },
     { key: "blessings", name: "Release banked blessings", what: "Use a saved blessing as soon as it's banked" },
-    { key: "buyUpgrades", name: "Buy upgrades", what: "Anything in the Curiosity Shop you can afford" },
+    {
+      key: "buyUpgrades",
+      name: "Buy Curiosity Shop items",
+      what: "The ones that help this run most, ranked with the generators. Skips click items when nothing is clicking or on an Empty Hand run",
+    },
     {
       key: "buyGens",
       name: "Buy generators",
@@ -116,7 +121,8 @@
   ];
   const RITUAL: { value: RitualMode; label: string }[] = [
     { value: "off", label: "Off" },
-    { value: "worth", label: "When it's worth it" },
+    { value: "fastest", label: "Fastest growth" },
+    { value: "worth", label: "Worth it" },
     { value: "shards", label: "At least" },
     { value: "always", label: "Every time" },
   ];
@@ -207,7 +213,8 @@
       {/if}
       {#if stats}
         <p class="tally">
-          {stats.favors} favors · {stats.spheres ?? 0} spheres · {stats.crystals} Mid-Bosses · {stats.upgrades} upgrades · {stats.gens} generators · {stats.rituals}
+          {stats.favors} favors · {stats.spheres ?? 0} spheres · {stats.crystals} Mid-Bosses · {stats.upgrades} upgrades ·
+          {stats.treeNodes ?? 0} tree nodes · {stats.gens} generators · {stats.rituals}
           Rituals this session{#if stats.last}<span class="last">&nbsp;· {stats.last}</span>{/if}
         </p>
       {/if}
@@ -256,6 +263,9 @@
         <p class="explain">
           {#if cfg.ritual.mode === "off"}
             You do the Ritual yourself.
+          {:else if cfg.ritual.mode === "fastest"}
+            Watches how fast this run is growing your permanent bonus, per minute of the run, and sacrifices just after that
+            peaks. Over many runs that grows your bonus fastest. Recommended.
           {:else if cfg.ritual.mode === "worth"}
             Sacrifice once your output afterwards would be at least
             <InlineNumber value={cfg.ritual.worth} min={1.01} onchange={(v) => (cfg.ritual.worth = Math.round(v * 100) / 100)} />× what it
@@ -267,6 +277,16 @@
             Sacrifice as soon as a single shard is waiting, every time.
           {/if}
         </p>
+        <div class="row tree">
+          <div class="text">
+            <b>Spend shards on the tree</b>
+            <small>
+              Buys the nodes worth the most per shard (more output, better shard rate, more shards per Ritual, boosts to what
+              your runs are made of). Saves up when something much better is close. Skips cosmetics.
+            </small>
+          </div>
+          <Toggle checked={cfg.treeBuy} onchange={(v) => (cfg.treeBuy = v)} label="Spend shards on the tree" />
+        </div>
         {#if cfg.ritual.mode !== "off"}
           <div class="row tree">
             <div class="text">

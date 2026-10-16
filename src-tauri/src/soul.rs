@@ -21,7 +21,7 @@ fn yes() -> bool {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct RitualRule {
-    /// "off" | "worth" | "shards" | "always"
+    /// "off" | "fastest" | "worth" | "shards" | "always"
     pub mode: String,
     /// "worth": go when output after ÷ output now is at least this.
     pub worth: f64,
@@ -59,6 +59,8 @@ pub struct SoulConfig {
     /// run straight away (the tree can only be opened then).
     #[serde(default = "yes")]
     pub tree_stop: bool,
+    /// Spend Patron Shards on the best skill tree nodes after a Ritual.
+    pub tree_buy: bool,
     pub ritual: RitualRule,
 }
 

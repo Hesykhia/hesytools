@@ -85,7 +85,7 @@ export interface IssuedCode {
   madeAt: number;
 }
 
-export type RitualMode = "off" | "worth" | "shards" | "always";
+export type RitualMode = "off" | "fastest" | "worth" | "shards" | "always";
 
 export interface SoulConfig {
   enabled: boolean;
@@ -101,6 +101,8 @@ export interface SoulConfig {
   reserveMinutes: number;
   /** After a Ritual, stay on the skill tree. */
   treeStop: boolean;
+  /** Spend shards on the best tree nodes. */
+  treeBuy: boolean;
   ritual: { mode: RitualMode; worth: number; shards: number };
 }
 
@@ -113,6 +115,7 @@ export interface SoulReport {
     stats?: {
       /** What the generator buyer is aiming for. */
       plan?: string;
+      treeNodes?: number;
       favors: number;
       spheres?: number;
       crystals: number;
