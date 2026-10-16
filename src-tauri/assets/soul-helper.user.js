@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         hesytools · Soul Clicker helper
 // @namespace    hesytools
-// @version      1.4.0
+// @version      1.5.0
 // @description  Lets hesytools play Soul Clicker for you: catches favors, buys, runs the Ritual. Only presses the game's own buttons.
 // @match        https://www.deadchaps.gg/soul-clicker*
 // @match        https://deadchaps.gg/soul-clicker*
@@ -22,7 +22,7 @@
 
   const BRIDGE = "http://127.0.0.1:__PORT__/soul";
   const TOKEN = "__TOKEN__";
-  const VERSION = "1.4.0";
+  const VERSION = "1.5.0";
 
   /** Off until hesytools says otherwise. */
   let cfg = {
@@ -194,11 +194,19 @@
     const souls = parseNum(text($(".souls-count"))) || 0;
     const earn = income();
     const reserve = Math.max(0, cfg.reserveMinutes || 0) * 60 * earn;
+    const gens = generators();
+    // "sps each" on a generator only counts its own upgrades, not global
+    // boosts (Patron Shards, whole-operation upgrades...). Real production
+    // divided by what the labels add up to gives that boost, so gains are
+    // measured on the same scale as income.
+    const labelled = gens.reduce((sum, o) => sum + o.owned * o.each, 0);
+    const production = parseNum(text($(".sps-line b"))) || 0;
+    const boost = labelled > 0 && production > labelled ? production / labelled : 1;
     const bank = Math.max(0, souls - reserve);
     const payback = (cost, gain) => (cost <= bank ? 0 : earn > 0 ? (cost - bank) / earn : Infinity) + cost / gain;
     let best = null;
-    for (const o of generators()) {
-      const plain = { o, kind: "buy", score: payback(o.cost, o.each * o.qty) };
+    for (const o of gens) {
+      const plain = { o, kind: "buy", score: payback(o.cost, o.each * boost * o.qty) };
       if (!best || plain.score < best.score) best = plain;
       const goal = MILESTONES.find(([at]) => at > o.owned);
       if (goal) {
@@ -206,7 +214,7 @@
         const need = at - o.owned;
         const units = (o.next * (Math.pow(GROWTH, need) - 1)) / (GROWTH - 1);
         // All `at` of them end up making twice as much.
-        const gain = (2 * at - o.owned) * o.each;
+        const gain = (2 * at - o.owned) * o.each * boost;
         const push = { o, kind: "goal", at, score: payback(units + o.base * x, gain) };
         if (push.score < best.score) best = push;
       }
