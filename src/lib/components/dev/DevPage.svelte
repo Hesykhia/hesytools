@@ -101,31 +101,7 @@
 
   const open = (url: string) => api.openLink(url).catch((e) => toast(errorText(e), "error"));
 
-  const AUTOMATIONS: {
-    key: "favors" | "crystals" | "leech" | "blessings" | "buyUpgrades" | "buyGens" | "secrets";
-    name: string;
-    what: string;
-  }[] = [
-    { key: "favors", name: "Catch favors", what: "Every Golden Statue and buff favor, plus the soul spheres chains and storms scatter" },
-    { key: "crystals", name: "Kill Mid-Bosses", what: "For their Rejuv Crystals" },
-    { key: "leech", name: "Claim the Soul Leech", what: "What your sources earned while you were away" },
-    { key: "blessings", name: "Release banked blessings", what: "Use a saved blessing as soon as it's banked" },
-    {
-      key: "buyUpgrades",
-      name: "Buy Curiosity Shop items",
-      what: "The ones that help this run most, ranked with the generators. Skips click items when nothing is clicking or on an Empty Hand run",
-    },
-    {
-      key: "buyGens",
-      name: "Buy generators",
-      what: "Whatever pays off soonest against everything you make, including saving up for the next 10/25/50… milestone that doubles a generator",
-    },
-    {
-      key: "secrets",
-      name: "Collect free secrets",
-      what: "Each secret is +1% output for good. Counts them when buying (owning 50/100/150… of a source, tree nodes) and when timing the Ritual, tries on every look once and puts yours back, and grabs the free ones like opening the Options",
-    },
-  ];
+  type ToggleKey = "favors" | "crystals" | "leech" | "blessings" | "buyUpgrades" | "buyGens" | "secrets" | "frenzy" | "treeStop" | "treeBuy" | "emptyHand";
   const RITUAL: { value: RitualMode; label: string }[] = [
     { value: "off", label: "Off" },
     { value: "fastest", label: "Fastest growth" },
@@ -227,96 +203,92 @@
       {/if}
     {/if}
 
-    <div class="cols">
+    {#snippet toggleRow(key: ToggleKey, name: string, what: string)}
+      <div class="row">
+        <div class="text"><b>{name}</b><small>{what}</small></div>
+        <Toggle checked={cfg[key]} onchange={(v) => (cfg[key] = v)} label={name} />
+      </div>
+    {/snippet}
+
+    <div class="groups">
       <div class="col">
-        <span class="label">Automate</span>
-        {#each AUTOMATIONS as a}
+        <section class="group">
+          <div class="ghead"><h4>Favors and pickups</h4><span>Things that pop up on screen</span></div>
+          {@render toggleRow("favors", "Catch favors", "Every Golden Statue and buff favor, plus the soul spheres chains and storms scatter")}
+          {@render toggleRow("blessings", "Release banked blessings", "Use a saved blessing as soon as it's banked")}
+          {@render toggleRow("leech", "Claim the Soul Leech", "What your sources earned while you were away")}
+          {@render toggleRow("crystals", "Kill Mid-Bosses", "For their Rejuv Crystals, once The Rejuvenator is on your tree")}
+        </section>
+
+        <section class="group">
+          <div class="ghead"><h4>Buying</h4><span>Ranked by how soon each buy pays for itself</span></div>
+          {@render toggleRow("buyGens", "Buy generators", "Whatever pays off soonest against everything you make, including saving up for the next 10/25/50… milestone that doubles a generator")}
+          {@render toggleRow("buyUpgrades", "Buy Curiosity Shop items", "The ones that help this run most, ranked with the generators. Skips click items when nothing is clicking or on an Empty Hand run")}
           <div class="row">
-            <div class="text"><b>{a.name}</b><small>{a.what}</small></div>
-            <Toggle checked={cfg[a.key]} onchange={(v) => (cfg[a.key] = v)} label={a.name} />
+            <div class="text">
+              <b>Keep a reserve</b>
+              <small>
+                Don't spend the last <InlineNumber value={cfg.reserveMinutes} min={0} onchange={(v) => (cfg.reserveMinutes = Math.max(0, v))} />
+                minutes of income. Lucky Souls pays up to 15% of what you're holding, so a reserve makes it pay more. 0 = spend it all.
+              </small>
+            </div>
           </div>
-        {/each}
-        <div class="row">
-          <div class="text">
-            <b>Click the orb</b>
-            <small>
-              <InlineNumber value={cfg.orbCps} min={1} max={20} onchange={(v) => (cfg.orbCps = Math.round(v))} /> times a second, with an
-              uneven rhythm so the game's autoclicker check doesn't trip
-            </small>
-          </div>
-          <Toggle checked={cfg.orb} onchange={(v) => (cfg.orb = v)} label="Click the orb" />
-        </div>
-        <div class="row">
-          <div class="text">
-            <b>Go all out during click blessings</b>
-            <small>While something like Trigger Frenzy is running, click the orb 20 times a second (even if the above is off)</small>
-          </div>
-          <Toggle checked={cfg.frenzy} onchange={(v) => (cfg.frenzy = v)} label="Click hard during click blessings" />
-        </div>
-        <div class="row">
-          <div class="text">
-            <b>Keep a reserve</b>
-            <small>
-              Don't spend the last <InlineNumber value={cfg.reserveMinutes} min={0} onchange={(v) => (cfg.reserveMinutes = Math.max(0, v))} />
-              minutes of income. Lucky Souls pays up to 15% of what you're holding, so a reserve makes it pay more. 0 = spend it all.
-            </small>
-          </div>
-        </div>
+        </section>
       </div>
 
       <div class="col">
-        <span class="label">The Ritual</span>
-        <Tabs size="s" value={cfg.ritual.mode} onchange={(v) => (cfg.ritual.mode = v as RitualMode)} options={RITUAL} />
-        <p class="explain">
-          {#if cfg.ritual.mode === "off"}
-            You do the Ritual yourself.
-          {:else if cfg.ritual.mode === "fastest"}
-            Watches how fast this run is growing your permanent bonus, per minute of the run, and sacrifices just after that
-            peaks. Over many runs that grows your bonus fastest. Recommended.
-          {:else if cfg.ritual.mode === "worth"}
-            Sacrifice once your output afterwards would be at least
-            <InlineNumber value={cfg.ritual.worth} min={1.01} onchange={(v) => (cfg.ritual.worth = Math.round(v * 100) / 100)} />× what it
-            is now. Each shard earned adds to your permanent bonus (2% each, more with some tree nodes).
-          {:else if cfg.ritual.mode === "shards"}
-            Sacrifice once at least <InlineNumber value={cfg.ritual.shards} min={1} onchange={(v) => (cfg.ritual.shards = Math.round(v))} />
-            shards are waiting.
-          {:else}
-            Sacrifice as soon as a single shard is waiting, every time.
+        <section class="group">
+          <div class="ghead"><h4>The Ritual</h4><span>When to sacrifice the run</span></div>
+          <div class="ritual">
+            <Tabs size="s" value={cfg.ritual.mode} onchange={(v) => (cfg.ritual.mode = v as RitualMode)} options={RITUAL} />
+            <p class="explain">
+              {#if cfg.ritual.mode === "off"}
+                You do the Ritual yourself.
+              {:else if cfg.ritual.mode === "fastest"}
+                Watches how fast this run is growing your permanent bonus (shards, and secrets the run unlocks), per minute of the
+                run, and sacrifices just after that peaks. Over many runs that grows your bonus fastest. Recommended.
+              {:else if cfg.ritual.mode === "worth"}
+                Sacrifice once your output afterwards would be at least
+                <InlineNumber value={cfg.ritual.worth} min={1.01} onchange={(v) => (cfg.ritual.worth = Math.round(v * 100) / 100)} />× what it
+                is now. Each shard earned adds to your permanent bonus (2% each, more with some tree nodes).
+              {:else if cfg.ritual.mode === "shards"}
+                Sacrifice once at least <InlineNumber value={cfg.ritual.shards} min={1} onchange={(v) => (cfg.ritual.shards = Math.round(v))} />
+                shards are waiting.
+              {:else}
+                Sacrifice as soon as a single shard is waiting, every time.
+              {/if}
+            </p>
+          </div>
+          {#if cfg.ritual.mode !== "off"}
+            {@render toggleRow("treeStop", "Stop on the skill tree", "The tree only opens right after a Ritual. Leave it up so you can spend shards, then press Return to the run. Off = carry straight on (good when you're away)")}
           {/if}
-        </p>
-        <div class="row tree">
-          <div class="text">
-            <b>Spend shards on the tree</b>
-            <small>
-              Buys the nodes worth the most per shard (more output, better shard rate, more shards per Ritual, boosts to what
-              your runs are made of). Saves up when something much better is close. Counts cosmetic nodes by the secrets they open
-              when Collect free secrets is on.
-            </small>
-          </div>
-          <Toggle checked={cfg.treeBuy} onchange={(v) => (cfg.treeBuy = v)} label="Spend shards on the tree" />
-        </div>
-        <div class="row tree">
-          <div class="text">
-            <b>Take the Vow of the Empty Hand</b>
-            <small>
-              Ticks it on the screen before each run: +25% shards at that run's Ritual, but clicks earn 1 soul. Recommended on;
-              turn it off if you like to click a lot yourself.
-            </small>
-          </div>
-          <Toggle checked={cfg.emptyHand} onchange={(v) => (cfg.emptyHand = v)} label="Take the Vow of the Empty Hand" />
-        </div>
-        {#if cfg.ritual.mode !== "off"}
-          <div class="row tree">
+          {@render toggleRow("emptyHand", "Take the Vow of the Empty Hand", "Ticks it before each run: +25% shards at that run's Ritual, but clicks earn 1 soul. Recommended on; turn it off if you like to click a lot yourself")}
+        </section>
+
+        <section class="group">
+          <div class="ghead"><h4>Skill tree</h4><span>Spending Patron Shards</span></div>
+          {@render toggleRow("treeBuy", "Spend shards on the tree", "Buys the nodes worth the most per shard (more output, better shard rate, more shards per Ritual, boosts to what your runs are made of). Saves up when something much better is close")}
+        </section>
+
+        <section class="group">
+          <div class="ghead"><h4>Secrets</h4><span>Each one is +1% output for good</span></div>
+          {@render toggleRow("secrets", "Collect secrets", "Counts them when buying (owning 50/100/150… of a source) and on the tree, tries on every look once and puts yours back, and grabs the free ones like opening the Options")}
+        </section>
+
+        <section class="group">
+          <div class="ghead"><h4>Clicking</h4><span>The orb</span></div>
+          <div class="row">
             <div class="text">
-              <b>Stop on the skill tree</b>
+              <b>Click the orb</b>
               <small>
-                The tree only opens right after a Ritual. Leave it up so you can spend shards, then press Return to the run. Off =
-                carry straight on (good when you're away).
+                <InlineNumber value={cfg.orbCps} min={1} max={20} onchange={(v) => (cfg.orbCps = Math.round(v))} /> times a second, with an
+                uneven rhythm so the game's autoclicker check doesn't trip
               </small>
             </div>
-            <Toggle checked={cfg.treeStop} onchange={(v) => (cfg.treeStop = v)} label="Stop on the skill tree after a Ritual" />
+            <Toggle checked={cfg.orb} onchange={(v) => (cfg.orb = v)} label="Click the orb" />
           </div>
-        {/if}
+          {@render toggleRow("frenzy", "Go all out during click blessings", "While something like Trigger Frenzy is running, click the orb 20 times a second (even if the above is off)")}
+        </section>
       </div>
     </div>
 
@@ -510,32 +482,52 @@
   .tally .last {
     color: var(--text-2);
   }
-  .cols {
+  .groups {
     display: grid;
-    grid-template-columns: 1.3fr 1fr;
-    gap: 28px;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    align-items: start;
   }
   .col {
     display: flex;
     flex-direction: column;
+    gap: 14px;
     min-width: 0;
   }
-  .label {
-    font-size: 11px;
-    font-weight: 650;
+  .group {
+    padding: 12px 14px 4px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid var(--stroke);
+  }
+  .ghead {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding-bottom: 8px;
+  }
+  .group h4 {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
     letter-spacing: 0.07em;
     text-transform: uppercase;
-    color: var(--text-3);
-    margin-bottom: 8px;
+    color: var(--violet-2);
   }
-  .row {
+  .ghead span {
+    font-size: 12px;
+    color: var(--text-3);
+  }
+  .ritual {
+    padding-bottom: 10px;
+  }  .row {
     display: flex;
     align-items: center;
     gap: 12px;
     padding: 9px 0;
     border-top: 1px solid var(--stroke);
   }
-  .label + .row {
+  .ghead + .row {
     border-top: none;
   }
   .text {
@@ -556,11 +548,8 @@
   .explain {
     font-size: 13px;
     color: var(--text-2);
-    margin-top: 12px;
-    line-height: 1.55;
-  }
-  .row.tree {
     margin-top: 10px;
+    line-height: 1.55;
   }
   .explain.soft {
     color: var(--text-3);
