@@ -305,7 +305,12 @@ export interface Settings {
   devCode?: string | null;
   issuedCodes?: IssuedCode[];
   soul?: SoulConfig;
+  /** GUI scale per page, 1 (smallest) to 5; 3 is normal size. */
+  uiScale?: UiScale;
 }
+
+export type ScalePage = "macros" | "watch" | "dev" | "settings";
+export type UiScale = Record<ScalePage, number>;
 
 export interface ClickerStatus {
   running: boolean;
@@ -365,6 +370,7 @@ export const api = {
   installUpdate: () => invoke<void>("install_update"),
   setAutoCheckUpdates: (on: boolean) => invoke<void>("set_auto_check_updates", { on }),
   setCloseToTray: (on: boolean) => invoke<void>("set_close_to_tray", { on }),
+  setUiScale: (page: ScalePage, level: number) => invoke<Settings>("set_ui_scale", { page, level }),
   quitApp: () => invoke<void>("quit_app"),
   setRecordingOverlay: (on: boolean) => invoke<void>("set_recording_overlay", { on }),
   screenLayout: () => invoke<Region[]>("screen_layout"),

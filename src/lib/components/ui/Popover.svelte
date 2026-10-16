@@ -48,8 +48,10 @@
         if (pop) {
           const r = pop.getBoundingClientRect();
           const margin = 12;
-          if (r.right > window.innerWidth - margin) shift = window.innerWidth - margin - r.right;
-          else if (r.left < margin) shift = margin - r.left;
+          // The page may be zoomed (GUI scale): the nudge is in its own pixels.
+          const zoom = pop.offsetWidth ? r.width / pop.offsetWidth : 1;
+          if (r.right > window.innerWidth - margin) shift = (window.innerWidth - margin - r.right) / zoom;
+          else if (r.left < margin) shift = (margin - r.left) / zoom;
         }
         shown = true;
       });

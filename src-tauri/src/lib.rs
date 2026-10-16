@@ -1354,6 +1354,17 @@ fn set_close_to_tray(a: AppState, on: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn set_ui_scale(a: AppState, page: String, level: u8) -> Result<Settings, String> {
+    let mut known = true;
+    let s = a.update(|s| known = s.ui_scale.set(&page, level))?;
+    if known {
+        Ok(s)
+    } else {
+        Err(format!("Unknown page: {page}"))
+    }
+}
+
+#[tauri::command]
 fn quit_app(app: AppHandle) {
     quit(&app);
 }
@@ -1487,6 +1498,7 @@ pub fn run() {
             recording_stop,
             set_recording_overlay,
             set_close_to_tray,
+            set_ui_scale,
             schedule_shutdown,
             cancel_shutdown,
             shutdown_status,

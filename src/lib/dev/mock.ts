@@ -26,6 +26,7 @@ const settings: Settings = {
   startupMacro: null,
   closeToTray: true,
   autoCheckUpdates: true,
+  uiScale: { macros: 3, watch: 3, dev: 3, settings: 3 },
   webhook: { url: "", mentionUserId: "", notifyClickerFinished: true, notifyMacroFinished: true },
   watches: [
     {
@@ -343,6 +344,9 @@ export function install() {
         case "save_watches":
           settings.watches = a.watches.map((w: any, i: number) => ({ ...w, id: w.id || `w${Date.now()}${i}` }));
           return structuredClone(settings.watches);
+        case "set_ui_scale":
+          settings.uiScale = { ...(settings.uiScale ?? { macros: 3, watch: 3, dev: 3, settings: 3 }), [a.page]: Math.min(5, Math.max(1, a.level)) };
+          return structuredClone(settings);
         case "set_recording_overlay":
           settings.recordingOverlay = a.on;
           return;

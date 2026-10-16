@@ -23,6 +23,7 @@
   import WatchPage from "$lib/components/watch/WatchPage.svelte";
   import DevPage from "$lib/components/dev/DevPage.svelte";
   import { dev, initDev } from "$lib/dev.svelte";
+  import { scaleLevel, zoomFor } from "$lib/scale";
   import SettingsPage from "$lib/components/SettingsPage.svelte";
   import UpdateCard from "$lib/components/UpdateCard.svelte";
   import { startAutoCheck } from "$lib/update.svelte";
@@ -35,6 +36,8 @@
   let page = $state<Page>("macros");
   let direction = $state(1);
   let settings = $state<Settings | null>(null);
+  /** This page's GUI scale (Settings → GUI scale). */
+  let zoom = $derived(zoomFor(scaleLevel(settings, page)));
   let info = $state<SystemInfo | null>(null);
   let loadError = $state("");
   let running = $state(false);
@@ -141,7 +144,7 @@
       <div class="glass error">Couldn't load settings: {loadError}</div>
     {:else if settings}
       {#key `${page}:${editingMacro ? editing : ""}`}
-        <div class="page" style:--dir={direction}>
+        <div class="page" style:--dir={direction} style:zoom={zoom === 1 ? null : zoom}>
           {#if page === "macros" && editingMacro}
             <MacroEditor source={editingMacro} onback={() => openMacro(null)} />
           {:else if page === "macros"}

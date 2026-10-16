@@ -167,6 +167,8 @@ pub struct Settings {
     /// Codes the owner has handed out (owner's PC only).
     pub issued_codes: Vec<IssuedCode>,
     pub soul: crate::soul::SoulConfig,
+    /// GUI scale per page, 1 (smallest) to 5; 3 is normal size.
+    pub ui_scale: UiScale,
 }
 
 impl Default for Settings {
@@ -188,7 +190,39 @@ impl Default for Settings {
             helper_token: String::new(),
             issued_codes: Vec::new(),
             soul: Default::default(),
+            ui_scale: UiScale::default(),
         }
+    }
+}
+
+/// How big each page is drawn, like Minecraft's GUI Scale.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct UiScale {
+    pub macros: u8,
+    pub watch: u8,
+    pub dev: u8,
+    pub settings: u8,
+}
+
+impl Default for UiScale {
+    fn default() -> Self {
+        Self { macros: 3, watch: 3, dev: 3, settings: 3 }
+    }
+}
+
+impl UiScale {
+    /// Set one page's scale (clamped to 1..=5). False for an unknown page.
+    pub fn set(&mut self, page: &str, level: u8) -> bool {
+        let level = level.clamp(1, 5);
+        match page {
+            "macros" => self.macros = level,
+            "watch" => self.watch = level,
+            "dev" => self.dev = level,
+            "settings" => self.settings = level,
+            _ => return false,
+        }
+        true
     }
 }
 
@@ -247,5 +281,17 @@ mod tests {
         for (json, want) in cases {
             assert_eq!(serde_json::from_str::<WatchAction>(json).unwrap(), want, "{json}");
         }
+    }
+
+    #[test]
+    fn gui_scale_defaults_to_3_and_stays_in_range() {
+        // Settings saved before GUI scale existed get the normal size.
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(s.ui_scale, UiScale::default());
+        let mut scale = UiScale::default();
+        assert!(scale.set("dev", 9));
+        assert!(scale.set("macros", 0));
+        assert!(!scale.set("nowhere", 2));
+        assert_eq!((scale.dev, scale.macros, scale.watch), (5, 1, 3));
     }
 }

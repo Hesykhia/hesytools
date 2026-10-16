@@ -12,6 +12,8 @@
   import { cancelShutdown, remaining, shutdown, startShutdown } from "$lib/shutdown.svelte";
   import InlineNumber from "./ui/InlineNumber.svelte";
   import { dev, setDev } from "$lib/dev.svelte";
+  import { SCALE_LEVELS, scaleLevel } from "$lib/scale";
+  import type { ScalePage } from "$lib/api";
 
   let { settings = $bindable(), info }: { settings: Settings; info: SystemInfo | null } = $props();
 
@@ -55,6 +57,15 @@
   let shutMinutes = $state(30);
   let shutRestart = $state(false);
   const SHUT_PRESETS = [5, 15, 30, 60, 120];
+
+  // ── GUI scale ────────────────────────────────────────────────────────────
+  let scalePages = $derived<{ page: ScalePage; name: string }[]>([
+    { page: "macros", name: "Macro" },
+    { page: "watch", name: "Screen Watch" },
+    ...(dev.unlocked ? [{ page: "dev" as ScalePage, name: "Dev" }] : []),
+    { page: "settings", name: "Settings" },
+  ]);
+  const setScale = (page: ScalePage, level: number) => run(async () => (settings = await api.setUiScale(page, level)));
 
   // ── Dev access ───────────────────────────────────────────────────────────
   let devCode = $state("");
@@ -167,6 +178,22 @@
             label="Record mouse movement"
           />
         </div>
+      </section>
+
+      <section class="group glass">
+        <h3>GUI scale</h3>
+        <p class="sub">How big each page is drawn, like Minecraft's GUI Scale. 3 is normal, 1 is smallest, 5 is biggest.</p>
+        {#each scalePages as s (s.page)}
+          <div class="row">
+            <div class="text"><b>{s.name}</b></div>
+            <Tabs
+              size="s"
+              value={String(scaleLevel(settings, s.page))}
+              onchange={(v) => setScale(s.page, Number(v))}
+              options={SCALE_LEVELS.map((n) => ({ value: String(n), label: String(n) }))}
+            />
+          </div>
+        {/each}
       </section>
     </div>
 
