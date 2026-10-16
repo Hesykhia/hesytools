@@ -1,4 +1,4 @@
-// GUI scale, like Minecraft's: each page has its own level, 1 (smallest)
+// GUI scale: each page has its own level, 1 (smallest)
 // to 5, and 3 is the normal size. Applied as CSS zoom on the page.
 import type { ScalePage, Settings } from "./api";
 

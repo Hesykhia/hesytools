@@ -182,7 +182,7 @@
 
       <section class="group glass">
         <h3>GUI scale</h3>
-        <p class="sub">How big each page is drawn, like Minecraft's GUI Scale. 3 is normal, 1 is smallest, 5 is biggest.</p>
+        <p class="sub">How big each page is drawn. 3 is normal, 1 is smallest, 5 is biggest.</p>
         {#each scalePages as s (s.page)}
           <div class="row">
             <div class="text"><b>{s.name}</b></div>

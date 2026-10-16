@@ -195,7 +195,7 @@ impl Default for Settings {
     }
 }
 
-/// How big each page is drawn, like Minecraft's GUI Scale.
+/// How big each page is drawn.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct UiScale {
