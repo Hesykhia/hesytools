@@ -1,6 +1,6 @@
 {
   "name": "hesytools",
-  "version": "5.4.3",
+  "version": "5.4.4",
   "description": "Macro, autoclicker and screen-watch tool",
   "type": "module",
   "scripts": {
