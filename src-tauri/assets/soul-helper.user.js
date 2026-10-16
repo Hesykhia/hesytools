@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         hesytools · Soul Clicker helper
 // @namespace    hesytools
-// @version      1.7.1
+// @version      1.8.0
 // @description  Lets hesytools play Soul Clicker for you: catches favors, buys, runs the Ritual. Only presses the game's own buttons.
 // @match        https://www.deadchaps.gg/soul-clicker*
 // @match        https://deadchaps.gg/soul-clicker*
@@ -22,7 +22,7 @@
 
   const BRIDGE = "http://127.0.0.1:__PORT__/soul";
   const TOKEN = "__TOKEN__";
-  const VERSION = "1.7.1";
+  const VERSION = "1.8.0";
 
   /** Off until hesytools says otherwise. */
   let cfg = {
@@ -253,18 +253,30 @@
     const payback = (cost, gain) => (gain > 0 ? (cost <= bank ? 0 : earn > 0 ? (cost - bank) / earn : Infinity) + cost / gain : Infinity);
     const options = [];
     if (cfg.buyGens && !selling()) {
+      // Owning so many of a source (or in total) unlocks secrets: +1% for good.
+      const total = e.gens.reduce((sum, o) => sum + o.owned, 0);
+      const unitsTo = (o, at) => (o.next * (Math.pow(GROWTH, at - o.owned) - 1)) / (GROWTH - 1);
       for (const o of e.gens) {
         if (holdExact(o)) continue;
-        options.push({ el: o.g, can: o.can, cost: o.cost, qty: o.qty, kind: "gen", name: o.name, score: payback(o.cost, o.each * e.boost * o.qty) });
+        const k = secretsAt(o, o.owned + o.qty, total);
+        options.push({ el: o.g, can: o.can, cost: o.cost, qty: o.qty, kind: "gen", name: o.name, secrets: k, score: payback(o.cost, o.each * e.boost * o.qty + secretsWorth(k, earn)) });
         const goal = MILESTONES.find(([at]) => at > o.owned);
         if (goal) {
           const [at, x] = goal;
-          const need = at - o.owned;
-          const units = (o.next * (Math.pow(GROWTH, need) - 1)) / (GROWTH - 1);
+          const k = secretsAt(o, at, total);
           // All `at` of them end up making twice as much.
-          const gain = (2 * at - o.owned) * o.each * e.boost;
-          const cost = units + o.base * x;
-          options.push({ el: o.g, can: o.can, cost: o.cost, qty: o.qty, kind: "goal", at, name: o.name, total: cost, score: payback(cost, gain) });
+          const gain = (2 * at - o.owned) * o.each * e.boost + secretsWorth(k, earn);
+          const cost = unitsTo(o, at) + o.base * x;
+          options.push({ el: o.g, can: o.can, cost: o.cost, qty: o.qty, kind: "goal", at, name: o.name, secrets: k, total: cost, score: payback(cost, gain) });
+        }
+        // The next count that unlocks a secret, when it isn't that milestone.
+        const next = cfg.secrets && foundRead && (SECRETS.gens[o.name] || []).find(([n, name]) => n > o.owned && !found.has(name));
+        if (next && (!goal || next[0] !== goal[0])) {
+          const at = next[0];
+          const k = secretsAt(o, at, total);
+          const cost = unitsTo(o, at);
+          const gain = (at - o.owned) * o.each * e.boost + secretsWorth(k, earn);
+          options.push({ el: o.g, can: o.can, cost: o.cost, qty: o.qty, kind: "secret", at, name: o.name, secrets: k, total: cost, score: payback(cost, gain) });
         }
       }
     }
@@ -282,12 +294,15 @@
     // measured in seconds of everything you make.
     const total = best.total ?? best.cost;
     const why = " · pays for itself in " + span(best.score) + ", costs " + span(earn > 0 ? total / earn : Infinity) + " of income";
+    const secretNote = best.secrets ? " + " + (best.secrets === 1 ? "a secret" : best.secrets + " secrets") : "";
     stats.plan =
       (best.kind === "goal"
-        ? "Working toward " + best.at + " " + best.name + " (doubles them)"
-        : best.kind === "item"
-          ? "Shop: " + best.name
-          : "Next: " + best.name) +
+        ? "Working toward " + best.at + " " + best.name + " (doubles them" + secretNote + ")"
+        : best.kind === "secret"
+          ? "Working toward " + best.at + " " + best.name + " (" + secretNote.slice(3) + ", +1% for good)"
+          : best.kind === "item"
+            ? "Shop: " + best.name
+            : "Next: " + best.name + (best.secrets ? " (" + secretNote.slice(3) + ")" : "")) +
       why +
       (e.locked ? " · Empty Hand run, skipping click items" : "");
     // Wait (and keep the reserve) rather than spending on something worse.
@@ -372,7 +387,8 @@
     let fastest = false;
     if (r.mode === "fastest" && n.runSecs > 0) {
       if (n.runSecs < peak.runSecs) peak = { rate: 0, runSecs: 0 };
-      const rate = Math.log(gain) / n.runSecs;
+      // Secrets this run's buying unlocked are permanent output too.
+      const rate = (Math.log(gain) + (cfg.secrets ? runSecrets * Math.log(1.01) : 0)) / n.runSecs;
       if (rate > peak.rate) peak = { rate, runSecs: n.runSecs };
       else peak.runSecs = n.runSecs;
       fastest = n.runSecs >= 60 && rate < peak.rate * 0.97;
@@ -421,6 +437,7 @@
     if (yes && after !== before) {
       stats.rituals++;
       peak = { rate: 0, runSecs: 0 };
+      runSecrets = 0;
       if (cfg.treeStop) stats.last = "Ritual done. Waiting on the skill tree: press Return to the run when you're finished";
     }
     else {
@@ -546,7 +563,7 @@
         const perShard = owned.has("ledger_of_the_overworld") ? 5 : owned.has("usury_eternal") ? 4 : owned.has("patron_manifest") ? 3 : 2;
         const t = { rituals, bonus, perShard, locked: clicksLocked() };
         const value = new Map(
-          nodes.map((n) => [n, !n.name ? 0 : !TREE[n.name][3] ? nodeValue(n.effect, t) : cfg.secrets ? lookValue(TREE[n.name][0], owned) : 0]),
+          nodes.map((n) => [n, !n.name ? 0 : (!TREE[n.name][3] ? nodeValue(n.effect, t) : 0) + (cfg.secrets ? nodeSecrets(TREE[n.name][0], owned) : 0)]),
         );
         // A node that opens something good is worth part of that too.
         for (const n of nodes) {
@@ -636,20 +653,63 @@
     } catch {}
   };
 
-  /** Secrets a cosmetic tree node opens up, as "% more output". One for the
-   * node, one per look it lets you wear, and a few for full sets. */
-  const LOOK_SECRETS = { ind_numfmt: 3, ind_tide: 8, ind_core: 6, ind_backdrop: 7, ind_season: 1 };
-  function lookValue(id, owned) {
-    let k = LOOK_SECRETS[id] ?? (/^set_/.test(id) ? 5 : 0);
-    const trio = ["ind_tide", "ind_core", "ind_backdrop"];
-    const five = [...trio, "ind_numfmt", "ind_season"];
-    const completes = (set) => set.includes(id) && set.every((x) => x === id || owned.has(x));
-    // Wearing the default look with all three pickers; owning all five.
-    if (completes(trio)) k += 1;
-    if (completes(five)) k += 2;
-    return (Math.pow(1.01, k) - 1) * 100;
+  // Every secret the helper can work toward, from the game's own code
+  // (made by scripts/soul/secretstable.py; regenerate when the game changes).
+const SECRETS = {"gens":{"Trooper":[[1,"First Blood"],[50,"Lane Pressure"],[100,"Trooper Spam"],[150,"The Endless Wave"],[200,"The March Eternal"],[250,"Cannon Fodder Cartel"],[300,"One Lane, One Purpose"],[350,"Conscription Drive"],[400,"Standing Army"],[450,"The Fodder Economy"],[500,"Wave Function Collapse"],[550,"More Troopers Than People"],[600,"The Final Wave"],[700,"Wave Without End"],[850,"The Trooper Singularity"],[1000,"All Lanes Are Trooper"]],"Denizen":[[1,"Neighbourhood Watch"],[50,"Block Party"],[100,"Urban Sprawl"],[150,"Gentrified"],[200,"Full Occupancy"],[250,"Census Nightmare"],[300,"The Neighbourhood Is Watching"],[350,"Planning Permission Denied"],[400,"Rent Control Abolished"],[450,"Slumlord of Souls"],[500,"The Block Is Yours"],[550,"Wall to Wall Denizens"],[600,"Humanity Priced Out"],[700,"The City Is Denizens"],[850,"Population Beyond Census"],[1000,"Every Window a Face"]],"Sinner's Sacrifice":[[1,"First Offering"],[50,"Regular Penitent"],[100,"Mass Confession"],[150,"Sin Tax"],[200,"Absolution Pipeline"],[250,"Guilt Futures"],[300,"Original Sin, Refinanced"],[350,"Confession Backlog"],[400,"The Guilt Standard"],[450,"Assembly Line Absolution"],[500,"Sin Derivatives"],[550,"Too Big to Absolve"],[600,"Judgement Day Postponed"],[700,"Sin Without End"],[850,"The Eternal Confession"],[1000,"Absolution Bankrupt"]],"Soul Urn":[[1,"Ashes in Escrow"],[50,"Urn Your Keep"],[100,"Ashes to Assets"],[150,"Storage Wars"],[200,"Columbarium Estates"],[250,"Ashes by the Tonne"],[300,"Urn Dynasty"],[350,"Compound Interment"],[400,"Urn While You Sleep"],[450,"The Ash Exchange"],[500,"Ossuary Empire"],[550,"Cremation Nation"],[600,"All the World an Urn"],[700,"The Ash Singularity"],[850,"Every Atom an Urn"],[1000,"Ashes All the Way Down"]],"Guardian":[[1,"Objective Secured"],[50,"Tower Defence"],[100,"Overguarded"],[150,"No Lane Untended"],[200,"Wall of Souls"],[250,"Zone Defence"],[300,"Nothing Gets Through"],[350,"Fortified Beyond Reason"],[400,"Defence in Depth"],[450,"Perimeter Absolute"],[500,"Siegeproof"],[550,"The Unbreachable City"],[600,"Nothing Ever Leaves Either"],[700,"The Sealed City"],[850,"Absolute Containment"],[1000,"Nothing In, Nothing Out"]],"Walker":[[1,"It Walks"],[50,"March of the Machines"],[100,"Walking Economy"],[150,"Unstoppable Advance"],[200,"Parade of Legs"],[250,"March of Progress"],[300,"The Walking Bank"],[350,"Ambulatory Assets"],[400,"The Long March"],[450,"Legion on Legs"],[500,"Seismic Footfall"],[550,"The Earth Trembles Politely"],[600,"Doomsday on Foot"],[700,"The Endless March"],[850,"The Ground Is Walkers"],[1000,"Apocalypse, Ambulant"]],"Shrine":[[1,"Place of Worship"],[50,"Pilgrimage Route"],[100,"Franchise Faith"],[150,"Holier Than Thou"],[200,"Choir of Hums"],[250,"Diocese of Dividends"],[300,"The Hum Heard Round the World"],[350,"Cathedral Economics"],[400,"The Humming District"],[450,"Vatican of the Damned"],[500,"Sainthood by Subscription"],[550,"One Nation Under Hum"],[600,"The Hum Becomes the World"],[700,"The Eternal Hum"],[850,"One Note Forever"],[1000,"The Hum Is All"]],"Mid-Boss":[[1,"Mini Raid"],[50,"Boss Rush"],[100,"Middle Management"],[150,"Executive Threat"],[200,"Board of Directors"],[250,"C-Suite Infestation"],[300,"Hostile Takeover"],[350,"Shareholder Revolt"],[400,"Corner Office Colossus"],[450,"The Org Chart Deepens"],[500,"Antitrust Violation"],[550,"Global Conglomerate of Teeth"],[600,"Chairman of the End Times"],[700,"The Infinite Board"],[850,"Takeover of Reality"],[1000,"Chairman of the Abyss"]],"Weakened Patron":[[1,"While They Are Down"],[50,"Convalescent Ward"],[100,"Weakness Exploited"],[150,"Critical Condition"],[200,"Ward Full of Gods"],[250,"Divine Triage"],[300,"Intensive Careless"],[350,"Malpractice as Policy"],[400,"The God Hospice"],[450,"Do Not Resuscitate"],[500,"Terminal Divinity"],[550,"Palliative Profiteering"],[600,"Flatline of the Gods"],[700,"The God Morgue"],[850,"Divinity Interred"],[1000,"No Gods Left to Fail"]],"The Patron":[[1,"Apex Predator"],[50,"Pantheon"],[100,"Gods in Bulk"],[150,"Divine Monopoly"],[200,"Polytheism at Scale"],[250,"The Pantheon Payroll"],[300,"Godhead Incorporated"],[350,"Gods on Retainer"],[400,"Deity Overstock"],[450,"The Omnipotence Glut"],[500,"Worship Flows Upward"],[550,"Heaven Reports to You"],[600,"Only Patrons Remain"],[700,"A Pantheon on Payroll"],[850,"Gods Beyond Counting"],[1000,"The Patron Above Patrons"]],"Zipline Network":[[1,"Hold On Tight"],[50,"Rush Hour"],[100,"Public Transport Tycoon"],[150,"The City Moves for You"],[200,"Grand Central Souls"],[250,"Rush Hour Forever"],[300,"The City Rides With You"],[350,"Express to Perdition"],[400,"Fare Evasion Impossible"],[450,"The Commuter Afterlife"],[500,"All Lines Run Forever"],[550,"The Eternal Timetable"],[600,"Last Stop Everywhere"],[700,"The Infinite Line"],[850,"Every Route Yours"],[1000,"The City Is One Zipline"]],"The Night Market":[[1,"After Hours"],[50,"Black Friday"],[100,"Cornered Market"],[150,"Everything Must Go"],[200,"Monopoly Money"],[250,"Every Stall Is Yours"],[300,"The Market Never Closes"],[350,"Back Alley Bourse"],[400,"Insider Occultism"],[450,"The Midnight Stock Exchange"],[500,"Bazaar Without Borders"],[550,"Everything Has a Price"],[600,"Reality Sold as Seen"],[700,"The Market Ate the City"],[850,"Everything Is for Sale"],[1000,"The Eternal Bazaar"]],"Golden Idol":[[1,"Idol Hands"],[50,"Cult Following"],[100,"Gilded Age"],[150,"Graven Images"],[200,"Forest of Idols"],[250,"Gilding the Gilded"],[300,"Worship Industrial Complex"],[350,"Skyline of Idols"],[400,"The Midas Portfolio"],[450,"Herd of Golden Calves"],[500,"Municipal Idolatry"],[550,"The City Kneels Daily"],[600,"Nothing Left but Idols"],[700,"The Idol Horizon"],[850,"A Statue for Every Soul"],[1000,"The Gilded Infinity"]],"Astral Gateway":[[1,"Door Ajar"],[50,"Open House"],[100,"Interdimensional Commute"],[150,"No Vacancy"],[200,"Revolving Door Policy"],[250,"Customs Abolished"],[300,"The Spirit Realm Commutes"],[350,"Portal Sprawl"],[400,"Border Control Resigns"],[450,"The Great Ingress"],[500,"Two Realms, One Landlord"],[550,"Open Plan Reality"],[600,"No Doors Left to Close"],[700,"The Open Cosmos"],[850,"Every Wall a Doorway"],[1000,"The Realms Collapse Inward"]],"The Veil":[[1,"Behind the Curtain"],[50,"Thin Places"],[100,"Threadbare"],[150,"Nothing Left to Hide"],[200,"Curtain Call"],[250,"Nothing Sacred, Nothing Hidden"],[300,"The Last Thread"],[350,"Sheer Negligence"],[400,"Moth-Eaten Cosmos"],[450,"Gauze and Effect"],[500,"The Unravelling"],[550,"See Through Everything"],[600,"The Veil Was a Rumour"],[700,"Nothing Left to Veil"],[850,"The Naked Cosmos"],[1000,"See All, Hide Nothing"]],"The Cursed Apple":[[1,"Big Apple, Bigger Debts"],[50,"Five Boroughs of the Damned"],[100,"The City That Never Sleeps"],[150,"Rotten to the Core"],[200,"Boroughs Beyond Counting"],[250,"Manifest Damnation"],[300,"The Apple Never Falls"],[350,"Concrete and Consequences"],[400,"The Orchard Expands"],[450,"Empire State of Damnation"],[500,"A Borough for Every Sin"],[550,"Gotham Compounds Daily"],[600,"The Apple Eats the World"],[700,"The Apple Eats the Cosmos"],[850,"Core of the Rotten Star"],[1000,"One Apple, All Damnation"]]},"army":[[500,"Five Hundred Deep"],[1000,"The Horde"],[2000,"Two Thousand Strong"],[4000,"The Soul Legion"],[8000,"Eight Thousand Strong"],[16000,"Payroll of the Apocalypse"],[24000,"Twenty-Four Thousand Strong"],[30000,"Thirty Thousand Under Arms"],[32000,"The Grand Host"],[48000,"Legions Beyond Legions"],[50000,"Fifty Thousand Damned Souls"]],"node":{"perma_slot_1":["A Wish Kept"],"perma_slot_5":["Every Wish Kept"],"the_reliquary":["The Reliquary"],"maelstrom_unbound":["Past All Reckoning"],"combined_arms":["Combined Arms"],"chain_unbroken":["The Chain Unbroken"],"numberless_host":["The Numberless Host"],"hands_of_the_host":["The Board in Your Hand"],"rejuvenated_ranks":["The Rejuvenated Ranks"],"cadence":["Cadence"],"unlock_wraith":["Recruit: Wraith"],"unlock_seven":["Recruit: Seven"],"unlock_ivy":["Recruit: Ivy"],"unlock_billy":["Recruit: Billy"],"unlock_abrams":["Recruit: Abrams"],"unlock_warden":["Recruit: Warden"],"full_roster":["The Full Roster"],"perma_slot_2":["A Second Wish Kept"],"perma_slot_3":["A Third Wish Kept"],"perma_slot_4":["A Fourth Wish Kept"],"set_infernus":["Suited in Cinders","Cinderforge Commissioned"],"set_kelvin":["Clad in Rime","The Rimewright Paid"],"set_seven":["Wrapped in Static","Static Contract Signed"],"set_vindicta":["Dressed for the Roost","Retained at the Roost"],"set_wraith":["The High-Roller's Attire","Marker at the Table"],"set_geist":["Robed for the Sepulchre","Rites of the Sepulchre"],"sleepless_city":["Where the Lamps Never Dim"],"overworld_signed":["Signed, the Overworld"],"hand_takes_all":["Every Last Thing"],"wish_compounded":["Interest Upon Interest"],"maelstrom_turns":["Again the Maelstrom"],"wrath_made_regular":["Wrath on Schedule"],"city_mothers_ledger":["The City Mother's Books"],"the_second_wish":["Wishing Twice","The Second Wish Granted"],"the_patron_ascendant":["The Patron Rises"],"throne_of_seven_storms":["Seated in Storms"],"crown_eternal":["Crowned Forever"],"the_archmothers_brood":["Mother of Multitudes"],"sovereign_of_sapphire":["Lord of Blue Fire"],"rejuvenator":["The Ripening Engine","The Rejuvenator Grafted"],"patron_manifest":["Made Flesh","The Patron Made Manifest"],"shardbound":["Bound to the Shard","Shardbound"],"doormans_introduction":["A Word with the Doorman"],"pact_king":["Kneel to the Hidden King"],"pact_mother":["Kneel to the Archmother"],"ind_numfmt":["Numbers Your Way"],"ind_tide":["Pick Your Tide"],"ind_core":["Blow Your Own Core"],"ind_backdrop":["Set the Scene"],"ind_season":["Change the Season"],"unlock_haze":["Recruit: Haze"],"unlock_drifter":["Recruit: Drifter"],"unlock_mina":["Recruit: Mina"],"unlock_venator":["Recruit: Venator"],"unlock_viscous":["Recruit: Viscous"]},"allOf":[[["unlock_abrams","unlock_warden"],"The Detective and the Jailer"],[["set_infernus","set_kelvin","set_seven","set_vindicta","set_wraith","set_geist"],"The Whole Wardrobe"],[["sleepless_city","overworld_signed","hand_takes_all","wish_compounded","maelstrom_unbound"],"The Ring Complete"],[["ind_numfmt","ind_tide","ind_core","ind_backdrop","ind_season"],"The Whole Wardrobe"],[["set_infernus","set_kelvin","set_seven","set_vindicta","set_wraith","set_geist"],"Every Hero on the Rack"],[["set_infernus","set_kelvin","set_seven","set_vindicta","set_wraith","set_geist"],"The Six Hero Contracts"],[["maelstrom_turns","wrath_made_regular","city_mothers_ledger"],"Every Capstone Turned"],[["sleepless_city","overworld_signed","hand_takes_all","wish_compounded","maelstrom_unbound"],"The Whole Outer Ring"],[["the_patron_ascendant","throne_of_seven_storms","crown_eternal"],"Throne, Crown and Ascendant"],[["ind_numfmt","ind_tide","ind_core","ind_backdrop","ind_season"],"All the Little Luxuries"],[["conscription_papers","divine_payroll","walkers_muster"],"The Army's Full Charter"]],"anyOf":[[["maelstrom_turns","wrath_made_regular","city_mothers_ledger"],"The Maelstrom Turns"],[["sleepless_city","overworld_signed","hand_takes_all","wish_compounded","maelstrom_unbound"],"The Outer Ring"],[["the_maelstrom_eternal","the_hand_unending","the_wish_eternal","the_sleepless_overworld","the_overworld_entire"],"Past the Outer Ring"]],"treeCount":[[1,"The Tree Stirs"],[5,"Five Wishes Deep"],[15,"The Tree Takes Root"],[30,"The Full Canopy"],[40,"Forty Boughs"],[40,"Forty Wishes Deep"],[45,"A Deep Canopy"],[50,"Fifty Boughs"],[50,"Fifty Wishes Deep"],[60,"The Canopy Entire"],[60,"The Spreading Canopy"],[60,"The Whole Grove"],[90,"Every Branch Bare"]]};
+
+  /** Names of the secrets already found: read from Stats once, then from the
+   * "Secret unlocked" toasts. Until Stats has been read, nothing counts. */
+  const found = new Set();
+  let foundRead = false;
+  /** Secrets this run's buying unlocked (source counts). They grow the
+   * permanent bonus like shards do, so the Ritual timing counts them. */
+  const RUN_SECRETS = new Set([...Object.values(SECRETS.gens).flat().map((x) => x[1]), ...SECRETS.army.map((x) => x[1])]);
+  let runSecrets = 0;
+  function watchToasts() {
+    for (const t of $$("#souls-toasts .toast")) {
+      if (t.dataset.hesySeen) continue;
+      t.dataset.hesySeen = "1";
+      if (!/secret/i.test(text(t.querySelector(".t-eyebrow")))) continue;
+      const name = text(t.querySelector(".t-title"));
+      if (!name || found.has(name)) continue;
+      found.add(name);
+      stats.secrets = (stats.secrets || 0) + 1;
+      if (foundRead) stats.secretsFound = (stats.secretsFound || 0) + 1;
+      if (RUN_SECRETS.has(name)) runSecrets++;
+    }
   }
 
+  /** A secret is +1% output for good, so it's worth more than 1% of this
+   * run's income: roughly this run plus a couple more. */
+  const SECRET_WEIGHT = 3;
+  const secretsWorth = (k, earn) => (k > 0 ? earn * (Math.pow(1.01, k) - 1) * SECRET_WEIGHT : 0);
+  /** Unfound secrets reached by owning 	o of this source (its own count
+   * and the total across every source). */
+  function secretsAt(o, to, total) {
+    if (!cfg.secrets || !foundRead) return 0;
+    const add = to - o.owned;
+    let k = (SECRETS.gens[o.name] || []).filter(([n, name]) => n > o.owned && n <= to && !found.has(name)).length;
+    k += SECRETS.army.filter(([n, name]) => n > total && n <= total + add && !found.has(name)).length;
+    return k;
+  }
+
+  /** Looks a cosmetic node lets you try on (one secret each). */
+  const LOOKS = { ind_numfmt: 2, ind_tide: 7, ind_core: 5, ind_backdrop: 6 };
+  /** What a tree node is worth in secrets, as "% more output": its own, sets
+   * it completes, node-count milestones, and the looks it opens. */
+  function nodeSecrets(id, owned) {
+    const miss = (name) => !foundRead || !found.has(name);
+    let k = (SECRETS.node[id] || []).filter(miss).length;
+    k += LOOKS[id] ?? (/^set_/.test(id) ? 4 : 0);
+    for (const [ids, name] of SECRETS.allOf) if (miss(name) && ids.includes(id) && ids.every((x) => x === id || owned.has(x))) k++;
+    for (const [ids, name] of SECRETS.anyOf) if (miss(name) && ids.includes(id) && !ids.some((x) => owned.has(x))) k++;
+    const count = [...owned].filter((x) => x && x !== "first_wish").length;
+    for (const [n, name] of SECRETS.treeCount) if (miss(name) && count < n && count + 1 >= n) k++;
+    // Wearing the default look once all three pickers are bought.
+    const trio = ["ind_tide", "ind_core", "ind_backdrop"];
+    if (trio.includes(id) && trio.every((x) => x === id || owned.has(x))) k++;
+    return (Math.pow(1.01, k) - 1) * 100;
+  }
   /** Hold exactly this many of a source for a moment ("not one more"). */
   const EXACT = { "The Patron": 100, "The Cursed Apple": 50, Trooper: 500 };
   const exactSince = {};
@@ -713,7 +773,6 @@
           stats.last = "Trying on " + l;
           await sleep(2500);
           markDone("look:" + cat + ":" + l);
-          stats.secrets = (stats.secrets || 0) + 1;
         }
       }
       await choose(cat, mine);
@@ -728,7 +787,6 @@
       await sleep(2500);
       for (const c in plain) if (mine[c] !== plain[c]) await choose(c, mine[c]);
       markDone("look:plain");
-      stats.secrets = (stats.secrets || 0) + 1;
       stats.last = "Tried on every look, yours is back on";
     }
   }
@@ -757,17 +815,26 @@
       if (was) press(was);
       markDone("max");
     }
-    // "Some secrets you just take": click a locked one under Stats.
-    if (!secretsDone.has("poke") && button("STATS")) {
+    // Stats, once per page load: which secrets are already found. Also
+    // "Some secrets you just take": click a locked one.
+    if (!foundRead && button("STATS")) {
       await quick(async () => {
         press(button("STATS"));
         await sleep(600);
-        for (const s of $$("span.ach:not(.got):not(.hotel)")) s.click();
+        const got = $$("span.ach.got:not(.hotel)").map((s) => s.getAttribute("aria-label") || "");
+        if (got.length) {
+          for (const n of got) found.add(n);
+          foundRead = true;
+          stats.secretsFound = got.length;
+        }
+        if (!secretsDone.has("poke")) {
+          for (const s of $$("span.ach:not(.got):not(.hotel)")) s.click();
+          markDone("poke");
+        }
         await sleep(200);
         const back = button("Back to the Holdings");
         if (back) press(back);
       });
-      markDone("poke");
     }
   }
 
@@ -811,6 +878,7 @@
   const onTree = () => !!$(".asc-wrap.on, .asc-confirm.on");
   function tick() {
     holdOrb();
+    watchToasts();
     if (cfg.enabled && cfg.treeBuy && $(".asc-wrap.on") && !treeBusy && tickN++ % 16 === 0) spendTree();
     if (cfg.enabled && cfg.emptyHand) takeEmptyHand();
     if (!cfg.enabled || onTree() || secretsBusy) return;
@@ -854,7 +922,7 @@
     } else done(false);
   }
 
-  window.__hesyHelper = { stats, readStatus, ritualNumbers, parseNum, spendTree, economy, shopItems, itemGain, get cfg() { return cfg; }, get connected() { return connected; } };
+  window.__hesyHelper = { stats, secretState: () => ({ found: found.size, foundRead, runSecrets }), readStatus, ritualNumbers, parseNum, spendTree, economy, shopItems, itemGain, get cfg() { return cfg; }, get connected() { return connected; } };
   setInterval(tick, 125);
   orbLoop();
   sync();

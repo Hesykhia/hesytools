@@ -121,6 +121,7 @@ export interface SoulReport {
       plan?: string;
       treeNodes?: number;
       secrets?: number;
+      secretsFound?: number;
       favors: number;
       spheres?: number;
       crystals: number;
