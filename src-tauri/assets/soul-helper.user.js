@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         hesytools · Soul Clicker helper
 // @namespace    hesytools
-// @version      1.9.0
+// @version      1.9.1
 // @description  Lets hesytools play Soul Clicker for you: catches favors, buys, runs the Ritual. Only presses the game's own buttons.
 // @match        https://www.deadchaps.gg/soul-clicker*
 // @match        https://deadchaps.gg/soul-clicker*
@@ -24,7 +24,7 @@
 
   const BRIDGE = "http://127.0.0.1:__PORT__/soul";
   const TOKEN = "__TOKEN__";
-  const VERSION = "1.9.0";
+  const VERSION = "1.9.1";
   /** Running in the test harness rather than Violentmonkey. */
   const TESTING = typeof GM_xmlhttpRequest !== "function";
 
@@ -498,6 +498,7 @@
     const after = text($(".souls-count"));
     if (yes && after !== before) {
       stats.rituals++;
+      recheckLooks();
       peak = { rate: 0, runSecs: 0 };
       runSecrets = 0;
       if (cfg.treeStop) stats.last = "Ritual done. Waiting on the skill tree: press Return to the run when you're finished";
@@ -658,6 +659,7 @@
         }
         press(pick.b);
         stats.treeNodes = (stats.treeNodes || 0) + 1;
+        recheckLooks();
         stats.last = "Tree: bought " + pick.name;
         await sleep(250);
       }
@@ -802,6 +804,12 @@ const SECRETS = {"gens":{"Trooper":[[1,"First Blood"],[50,"Lane Pressure"],[100,
     }
   };
 
+  /** Pickers already looked through. New looks only come from the tree, so
+   * each picker is opened once per page load and again after a Ritual or a
+   * tree purchase, not every pass. */
+  const looksChecked = new Set();
+  const recheckLooks = () => looksChecked.clear();
+
   /** Put on every look once (one secret each), then go back to yours. */
   async function wearLooks() {
     const pickerOf = (cat) => $(`button.season-tok.cosmetic[data-cat="${cat}"]`);
@@ -831,11 +839,19 @@ const SECRETS = {"gens":{"Trooper":[[1,"First Blood"],[50,"Lane Pressure"],[100,
       });
     const cats = $$("button.season-tok.cosmetic[data-cat]").map((b) => b.dataset.cat).filter((c) => c !== "season");
     for (const cat of cats) {
+      if (looksChecked.has(cat)) continue;
       const { list, mine } = await options(cat);
+      if (!list.length) continue;
+      looksChecked.add(cat);
+      // Whatever you're wearing already counts.
+      if (mine && !secretsDone.has("look:" + cat + ":" + mine)) markDone("look:" + cat + ":" + mine);
       const todo = list.filter((l) => l !== mine && !secretsDone.has("look:" + cat + ":" + l));
       if (!todo.length) continue;
       for (const l of todo) {
-        if (!cfg.enabled || !cfg.secrets || onTree()) return;
+        if (!cfg.enabled || !cfg.secrets || onTree()) {
+          looksChecked.delete(cat);
+          return;
+        }
         if (await choose(cat, l)) {
           stats.last = "Trying on " + l;
           await sleep(2500);
