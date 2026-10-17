@@ -1,6 +1,6 @@
 [package]
 name = "hesytools-next"
-version = "5.5.4"
+version = "5.5.5"
 description = "hesytools"
 authors = ["hesy"]
 edition = "2024"
