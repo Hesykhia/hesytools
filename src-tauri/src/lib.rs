@@ -340,13 +340,14 @@ fn start_recording(app: &AppHandle, a: &Arc<App>) -> Result<(), String> {
                     return false;
                 }
             }
-            // Nothing done inside hesytools' own window gets recorded. (The
-            // outline is click-through, so clicks over it reach the app below.)
-            let target = match ev.kind {
-                InputKind::Key { .. } => input::foreground_window(),
-                _ => input::root_window_at(ev.x, ev.y),
-            };
-            target != own
+            // Keys always count, even with hesytools still in front after
+            // pressing Record. Clicks on hesytools' own window (its Stop
+            // button) don't. (The outline is click-through, so clicks over it
+            // reach the app below.)
+            match ev.kind {
+                InputKind::Key { .. } => true,
+                _ => input::root_window_at(ev.x, ev.y) != own,
+            }
         },
         on_progress,
     ));
