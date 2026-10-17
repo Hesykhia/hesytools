@@ -79,7 +79,7 @@ Then run a macro, stop everything, or just get notified. The live view shows exa
 ## 📥 Getting started
 
 1. Head to [Releases](https://github.com/Hesykhia/hesytools/releases) and grab the latest `hesytools_x.x.x_x64-setup.exe`
-2. Run it. No admin needed, no Python, nothing else to set up
+2. Run it. No admin needed, no Python, nothing else to set up. If Windows shows "Windows protected your PC", click **More info**, then **Run anyway**. It shows that for apps without a paid signing certificate
 3. Closing the window keeps it running in the tray so your hotkeys keep working. Quit from the tray icon
 4. When a new version is out, hesytools tells you and updates itself in a few seconds. Your macros and settings stay
 
