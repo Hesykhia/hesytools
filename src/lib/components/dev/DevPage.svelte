@@ -222,7 +222,7 @@
 
         <section class="group">
           <div class="ghead"><h4>Buying</h4><span>Ranked by how soon each buy pays for itself</span></div>
-          {@render toggleRow("buyGens", "Buy generators", "Whatever pays off soonest against everything you make, including saving up for the next 10/25/50… milestone that doubles a generator")}
+          {@render toggleRow("buyGens", "Buy generators", "Whatever pays off soonest against everything you make, including saving up for the next 10/25/50… milestone that doubles a generator. Switches to x10 or x100 to buy many at once")}
           {@render toggleRow("buyUpgrades", "Buy Curiosity Shop items", "The ones that help this run most, ranked with the generators. Skips click items when nothing is clicking or on an Empty Hand run")}
           <div class="row">
             <div class="text">

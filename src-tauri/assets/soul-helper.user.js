@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         hesytools · Soul Clicker helper
 // @namespace    hesytools
-// @version      1.8.1
+// @version      1.9.0
 // @description  Lets hesytools play Soul Clicker for you: catches favors, buys, runs the Ritual. Only presses the game's own buttons.
 // @match        https://www.deadchaps.gg/soul-clicker*
 // @match        https://deadchaps.gg/soul-clicker*
@@ -24,7 +24,7 @@
 
   const BRIDGE = "http://127.0.0.1:__PORT__/soul";
   const TOKEN = "__TOKEN__";
-  const VERSION = "1.8.1";
+  const VERSION = "1.9.0";
   /** Running in the test harness rather than Violentmonkey. */
   const TESTING = typeof GM_xmlhttpRequest !== "function";
 
@@ -243,6 +243,43 @@
   /** Pick what pays off soonest against your whole income: a generator, the
    * next milestone of one (and the item that doubles it), or a Curiosity
    * Shop item. payback = time to afford it + time to earn its price back. */
+  /** The buy quantity buttons (x1, x10, x100, max). */
+  const qtyButtons = () => $$("button").filter((b) => /^(x1|x10|x100|max)$/i.test(text(b)) && b.offsetParent !== null);
+  function setBuyQty(n) {
+    const b = qtyButtons().find((x) => text(x).toLowerCase() === "x" + n);
+    if (!b) return false;
+    press(b);
+    return true;
+  }
+  /** Just switched the toggle for this purchase: make it on the next pass. */
+  let bulk = null;
+
+  /** How many of a generator to buy in one go: 100, 10 or 1. All the way
+   * to a goal, or for a plain buy as many as still beat the next-best
+   * option; never more than you can afford or past a "hold exactly". */
+  function bulkSize(best, ranked, e, bank) {
+    const o = best.gen;
+    // How many `money` buys, starting at the next one's price.
+    const unitsFor = (money) => (money >= o.next ? Math.floor(Math.log(1 + (money * (GROWTH - 1)) / o.next) / Math.log(GROWTH)) : 0);
+    const afford = unitsFor(bank);
+    let want;
+    if (best.kind === "goal" || best.kind === "secret") want = best.at - o.owned;
+    else {
+      const other = ranked.find((x) => x.name !== best.name);
+      const gain = o.each * e.boost;
+      // Unit j costs next * 1.15^j; keep going while it still pays back sooner.
+      const limit = other && gain > 0 ? other.score * gain : Infinity;
+      want = !isFinite(limit) ? afford : limit >= o.next ? 1 + Math.floor(Math.log(limit / o.next) / Math.log(GROWTH)) : 1;
+      // With souls to spare the order hardly matters: a quarter of what you
+      // can spend goes on this one at once (prices climb 15% a unit, so this
+      // reins itself in as they get expensive).
+      want = Math.max(want, unitsFor(bank / 4));
+    }
+    let n = Math.min(want, afford);
+    if (cfg.secrets && EXACT[o.name] > o.owned && !secretsDone.has("exact:" + o.name)) n = Math.min(n, EXACT[o.name] - o.owned);
+    return n >= 100 ? 100 : n >= 10 ? 10 : 1;
+  }
+
   function buyBest() {
     if (cfg.buyGens && selling()) {
       stats.last = "Shop is in Sell mode, not buying";
@@ -254,6 +291,18 @@
     const earn = e.earn;
     const reserve = Math.max(0, cfg.reserveMinutes || 0) * 60 * earn;
     const bank = Math.max(0, souls - reserve);
+    // Finish a bulk buy the toggle was just switched for.
+    if (bulk) {
+      const o = e.byName[bulk.name];
+      const go = o && o.qty === bulk.qty && o.can && souls - o.cost >= reserve;
+      if (go) {
+        press(o.g);
+        stats.gens += o.qty;
+        stats.last = "Bought " + (o.qty > 1 ? o.qty + " " : "") + o.name;
+      }
+      if (go || Date.now() > bulk.until) bulk = null;
+      if (go) return true;
+    }
     const payback = (cost, gain) => (gain > 0 ? (cost <= bank ? 0 : earn > 0 ? (cost - bank) / earn : Infinity) + cost / gain : Infinity);
     const options = [];
     if (cfg.buyGens && !selling()) {
@@ -263,7 +312,7 @@
       for (const o of e.gens) {
         if (holdExact(o)) continue;
         const k = secretsAt(o, o.owned + o.qty, total);
-        options.push({ el: o.g, can: o.can, cost: o.cost, qty: o.qty, kind: "gen", name: o.name, secrets: k, score: payback(o.cost, o.each * e.boost * o.qty + secretsWorth(k, earn)) });
+        options.push({ el: o.g, gen: o, can: o.can, cost: o.cost, qty: o.qty, kind: "gen", name: o.name, secrets: k, score: payback(o.cost, o.each * e.boost * o.qty + secretsWorth(k, earn)) });
         const goal = MILESTONES.find(([at]) => at > o.owned);
         if (goal) {
           const [at, x] = goal;
@@ -271,7 +320,7 @@
           // All `at` of them end up making twice as much.
           const gain = (2 * at - o.owned) * o.each * e.boost + secretsWorth(k, earn);
           const cost = unitsTo(o, at) + o.base * x;
-          options.push({ el: o.g, can: o.can, cost: o.cost, qty: o.qty, kind: "goal", at, name: o.name, secrets: k, total: cost, score: payback(cost, gain) });
+          options.push({ el: o.g, gen: o, can: o.can, cost: o.cost, qty: o.qty, kind: "goal", at, name: o.name, secrets: k, total: cost, score: payback(cost, gain) });
         }
         // The next count that unlocks a secret, when it isn't that milestone.
         const next = cfg.secrets && foundRead && (SECRETS.gens[o.name] || []).find(([n, name]) => n > o.owned && !found.has(name));
@@ -280,7 +329,7 @@
           const k = secretsAt(o, at, total);
           const cost = unitsTo(o, at);
           const gain = (at - o.owned) * o.each * e.boost + secretsWorth(k, earn);
-          options.push({ el: o.g, can: o.can, cost: o.cost, qty: o.qty, kind: "secret", at, name: o.name, secrets: k, total: cost, score: payback(cost, gain) });
+          options.push({ el: o.g, gen: o, can: o.can, cost: o.cost, qty: o.qty, kind: "secret", at, name: o.name, secrets: k, total: cost, score: payback(cost, gain) });
         }
       }
     }
@@ -289,7 +338,8 @@
         options.push({ el: it.c, can: it.can, cost: it.cost, kind: "item", name: it.name, score: payback(it.cost, itemGain(it.effect, e)) });
       }
     }
-    const best = options.filter((o) => isFinite(o.score)).sort((a, b) => a.score - b.score)[0];
+    const ranked = options.filter((o) => isFinite(o.score)).sort((a, b) => a.score - b.score);
+    const best = ranked[0];
     if (!best) {
       stats.plan = "";
       return false;
@@ -309,6 +359,14 @@
             : "Next: " + best.name + (best.secrets ? " (" + secretNote.slice(3) + ")" : "")) +
       why +
       (e.locked ? " · Empty Hand run, skipping click items" : "");
+    // Many at once: switch the game's x1/x10/x100 toggle first, then buy.
+    if (best.gen && cfg.buyGens) {
+      const want = bulkSize(best, ranked, e, bank);
+      if (want !== best.qty && setBuyQty(want)) {
+        bulk = { name: best.name, qty: want, until: Date.now() + 2000 };
+        return false;
+      }
+    }
     // Wait (and keep the reserve) rather than spending on something worse.
     if (!best.can || souls - best.cost < reserve) return false;
     press(best.el);
