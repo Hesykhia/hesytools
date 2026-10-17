@@ -10,7 +10,10 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const MAX_SECS: u64 = 315_360_000;
 
 fn run(args: &[&str]) -> Result<(), String> {
-    let out = Command::new("shutdown")
+    // Windows' own copy, never a shutdown.exe that happens to sit next to us.
+    let windir = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+    let exe = std::path::Path::new(&windir).join("System32").join("shutdown.exe");
+    let out = Command::new(exe)
         .args(args)
         .creation_flags(CREATE_NO_WINDOW)
         .output()

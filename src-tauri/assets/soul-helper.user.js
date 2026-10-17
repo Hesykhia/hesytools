@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         hesytools · Soul Clicker helper
 // @namespace    hesytools
-// @version      1.8.0
+// @version      1.8.1
 // @description  Lets hesytools play Soul Clicker for you: catches favors, buys, runs the Ritual. Only presses the game's own buttons.
 // @match        https://www.deadchaps.gg/soul-clicker*
 // @match        https://deadchaps.gg/soul-clicker*
 // @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @connect      127.0.0.1
 // @updateURL    http://127.0.0.1:__PORT__/soul-helper.user.js
 // @downloadURL  http://127.0.0.1:__PORT__/soul-helper.user.js
@@ -22,7 +24,9 @@
 
   const BRIDGE = "http://127.0.0.1:__PORT__/soul";
   const TOKEN = "__TOKEN__";
-  const VERSION = "1.8.0";
+  const VERSION = "1.8.1";
+  /** Running in the test harness rather than Violentmonkey. */
+  const TESTING = typeof GM_xmlhttpRequest !== "function";
 
   /** Off until hesytools says otherwise. */
   let cfg = {
@@ -577,7 +581,7 @@
           }
         }
         const open = nodes.filter((n) => !n.own && !n.locked && n.cost > 0 && value.get(n) > 0);
-        window.__hesyTree = nodes.filter((n) => !n.own).map((n) => [n.name, n.cost, +value.get(n).toFixed(2), n.locked ? "locked" : n.can ? "can" : "open"]);
+        if (TESTING) window.__hesyTree = nodes.filter((n) => !n.own).map((n) => [n.name, n.cost, +value.get(n).toFixed(2), n.locked ? "locked" : n.can ? "can" : "open"]);
         const ratio = (n) => value.get(n) / n.cost;
         open.sort((a, b) => ratio(b) - ratio(a));
         const best = open[0];
@@ -638,19 +642,22 @@
   // Every secret (achievement) found adds 1% to souls per second, and they
   // multiply. Plenty cost nothing: wearing each look once, opening the
   // Options, clicking the news wire... Each is done once, then remembered.
-  const DONE_KEY = "hesytools.secrets";
-  const secretsDone = new Set((() => {
-    try {
-      return JSON.parse(localStorage.getItem(DONE_KEY) || "[]");
-    } catch {
-      return [];
+  // Kept in Violentmonkey's own storage, which the game's page can't see.
+  const DONE_KEY = "secretsDone";
+  const hasStore = typeof GM_getValue === "function" && typeof GM_setValue === "function";
+  const secretsDone = new Set(hasStore ? GM_getValue(DONE_KEY, []) : []);
+  // Helper 1.7 to 1.8.0 kept this in the page's own storage: move it over.
+  try {
+    const old = localStorage.getItem("hesytools.secrets");
+    if (old !== null) {
+      for (const k of JSON.parse(old)) secretsDone.add(k);
+      if (hasStore) GM_setValue(DONE_KEY, [...secretsDone]);
+      localStorage.removeItem("hesytools.secrets");
     }
-  })());
+  } catch {}
   const markDone = (k) => {
     secretsDone.add(k);
-    try {
-      localStorage.setItem(DONE_KEY, JSON.stringify([...secretsDone]));
-    } catch {}
+    if (hasStore) GM_setValue(DONE_KEY, [...secretsDone]);
   };
 
   // Every secret the helper can work toward, from the game's own code
@@ -665,10 +672,12 @@ const SECRETS = {"gens":{"Trooper":[[1,"First Blood"],[50,"Lane Pressure"],[100,
    * permanent bonus like shards do, so the Ritual timing counts them. */
   const RUN_SECRETS = new Set([...Object.values(SECRETS.gens).flat().map((x) => x[1]), ...SECRETS.army.map((x) => x[1])]);
   let runSecrets = 0;
+  /** Toasts already read (remembered here, never marked on the page). */
+  const seenToasts = new WeakSet();
   function watchToasts() {
     for (const t of $$("#souls-toasts .toast")) {
-      if (t.dataset.hesySeen) continue;
-      t.dataset.hesySeen = "1";
+      if (seenToasts.has(t)) continue;
+      seenToasts.add(t);
       if (!/secret/i.test(text(t.querySelector(".t-eyebrow")))) continue;
       const name = text(t.querySelector(".t-title"));
       if (!name || found.has(name)) continue;
@@ -922,7 +931,8 @@ const SECRETS = {"gens":{"Trooper":[[1,"First Blood"],[50,"Lane Pressure"],[100,
     } else done(false);
   }
 
-  window.__hesyHelper = { stats, secretState: () => ({ found: found.size, foundRead, runSecrets }), readStatus, ritualNumbers, parseNum, spendTree, economy, shopItems, itemGain, get cfg() { return cfg; }, get connected() { return connected; } };
+  // Test harness only (no Violentmonkey there); the game never sees these.
+  if (TESTING) window.__hesyHelper = { stats, secretState: () => ({ found: found.size, foundRead, runSecrets }), readStatus, ritualNumbers, parseNum, spendTree, economy, shopItems, itemGain, get cfg() { return cfg; }, get connected() { return connected; } };
   setInterval(tick, 125);
   orbLoop();
   sync();

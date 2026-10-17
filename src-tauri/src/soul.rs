@@ -125,6 +125,11 @@ pub fn start(host: Arc<dyn Host>) {
         .expect("spawn soul bridge");
 }
 
+/// Token comparison that takes the same time however much of it matches.
+fn same(a: &str, b: &str) -> bool {
+    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 fn handle(mut stream: TcpStream, host: &dyn Host) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
@@ -134,6 +139,7 @@ fn handle(mut stream: TcpStream, host: &dyn Host) -> std::io::Result<()> {
     let (method, path) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
     let mut length = 0usize;
     let mut token = String::new();
+    let mut host_header = String::new();
     loop {
         let mut h = String::new();
         if reader.read_line(&mut h)? == 0 || h == "\r\n" || h == "\n" {
@@ -143,6 +149,7 @@ fn handle(mut stream: TcpStream, host: &dyn Host) -> std::io::Result<()> {
             match k.trim().to_ascii_lowercase().as_str() {
                 "content-length" => length = v.trim().parse().unwrap_or(0).min(1 << 20),
                 "x-hesy-token" => token = v.trim().to_string(),
+                "host" => host_header = v.trim().to_ascii_lowercase(),
                 _ => {}
             }
         }
@@ -150,12 +157,16 @@ fn handle(mut stream: TcpStream, host: &dyn Host) -> std::io::Result<()> {
     let mut body = vec![0; length];
     reader.read_exact(&mut body)?;
 
+    // Only requests addressed to this PC by address. A web page that points
+    // its own domain at 127.0.0.1 (DNS rebinding) sends its domain here.
+    let addressed_to_us = [format!("127.0.0.1:{PORT}"), format!("localhost:{PORT}")].contains(&host_header);
     let (status, kind, out) = match (method, path.split('?').next().unwrap_or("")) {
+        _ if !addressed_to_us => ("403 Forbidden", "text/plain", String::new()),
         ("GET", "/soul-helper.user.js") => match host.config() {
             Some(_) => ("200 OK", "text/javascript; charset=utf-8", script(&host.token())),
             None => ("403 Forbidden", "text/plain", "The Dev tab isn't unlocked in hesytools.".into()),
         },
-        ("POST", "/soul") if !token.is_empty() && token == host.token() => {
+        ("POST", "/soul") if !token.is_empty() && same(&token, &host.token()) => {
             if let Ok(data) = serde_json::from_slice::<serde_json::Value>(&body) {
                 host.report(SoulReport { at: crate::macro_store::now_ms(), data });
             }
@@ -172,4 +183,52 @@ fn handle(mut stream: TcpStream, host: &dyn Host) -> std::io::Result<()> {
         out.len()
     )?;
     stream.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Fake;
+    impl Host for Fake {
+        fn token(&self) -> String {
+            "secret-token".into()
+        }
+        fn config(&self) -> Option<SoulConfig> {
+            Some(SoulConfig::default())
+        }
+        fn report(&self, _: SoulReport) {}
+    }
+
+    /// Send one raw request through `handle` and return the status line.
+    fn ask(request: &str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (s, _) = listener.accept().unwrap();
+            let _ = handle(s, &Fake);
+        });
+        let mut c = TcpStream::connect(addr).unwrap();
+        c.write_all(request.as_bytes()).unwrap();
+        let mut out = String::new();
+        let _ = c.read_to_string(&mut out);
+        server.join().unwrap();
+        out.lines().next().unwrap_or("").to_string()
+    }
+
+    #[test]
+    fn only_answers_requests_addressed_to_this_pc() {
+        let get = |host: &str| ask(&format!("GET /soul-helper.user.js HTTP/1.1\r\nHost: {host}\r\n\r\n"));
+        assert!(get(&format!("127.0.0.1:{PORT}")).contains("200"));
+        assert!(get(&format!("localhost:{PORT}")).contains("200"));
+        // DNS rebinding: an outside domain pointed at 127.0.0.1.
+        assert!(get(&format!("evil.example:{PORT}")).contains("403"));
+        assert!(ask("GET /soul-helper.user.js HTTP/1.1\r\n\r\n").contains("403"));
+        let post = |token: &str| {
+            ask(&format!("POST /soul HTTP/1.1\r\nHost: 127.0.0.1:{PORT}\r\nX-Hesy-Token: {token}\r\nContent-Length: 2\r\n\r\n{{}}"))
+        };
+        assert!(post("secret-token").contains("200"));
+        assert!(post("secret-tokem").contains("401"));
+        assert!(post("").contains("401"));
+    }
 }
